@@ -1,0 +1,18 @@
+[project]
+name = "ALQarib"
+version = "1.0.0"
+dependencies = [
+    "flet",
+    "flet-ads",
+]
+
+[tool.flet]
+org = "com.yourname"
+
+# معرّف AdMob لأندرويد
+[tool.flet.android.meta_data]
+"com.google.android.gms.ads.APPLICATION_ID" = "ca-app-pub-3940256099942544~3347511713"
+
+# معرّف AdMob لـ iOS
+[tool.flet.ios.info]
+GADApplicationIdentifier = "ca-app-pub-3940256099942544~3347511713"
