@@ -202,6 +202,16 @@ def _do_back(page):
         return
     page.views.pop()
     page.route = page.views[-1].route
+
+    # إخفاء الإعلان العالمي عند الرجوع للصفحة الرئيسية
+    banner = getattr(page, "_global_banner", None)
+    if banner is not None:
+        banner.visible = (page.route != "/")
+        try:
+            banner.update()
+        except Exception:
+            pass
+
     safe_update(page)
 
 # ── زر AppBar اليدوي ────────────────────────────────────────
@@ -7365,7 +7375,9 @@ class WuduLearningPage:
                                 ),
                                 margin=ft.Margin.only(top=20, bottom=30),
                                 alignment=ft.Alignment(0, 0)
-                            )
+                            ),
+                            # 🔹 إضافة مسافة فارغة في الأسفل لتوفير مساحة قبل البانر
+                            Container(height=55),
                         ],
                         scroll=ScrollMode.AUTO,
                         expand=True,
@@ -7429,7 +7441,8 @@ class TimedSunanPage:
                     )
                 )
             
-
+            # 🔹 إضافة مسافة فارغة في الأسفل لتوفير مساحة قبل البانر
+            controls.append(Container(height=55))
             
             return View(
                 route=f"/{title.lower().replace(' ', '_')}",
@@ -7452,7 +7465,7 @@ class TimedSunanPage:
                         horizontal_alignment=CrossAxisAlignment.CENTER,
                     ),
                 ],
-                bgcolor="#E4E9E9",
+                bgcolor="#e9ecec",
                 padding=0,
                 spacing=0,
                 horizontal_alignment=CrossAxisAlignment.CENTER,
@@ -7597,7 +7610,8 @@ class UntimedSunanPage:
                     )
                 )
             
-
+            # 🔹 إضافة مسافة فارغة في الأسفل لتوفير مساحة قبل البانر
+            controls.append(Container(height=55))
             
             return View(
                 route=f"/{title.lower().replace(' ', '_')}",
@@ -8612,7 +8626,8 @@ class youmgPage:
                         ),
                         
                         *step_widgets,
-                        
+                        # 🔹 إضافة مسافة فارغة في الأسفل لتوفير مساحة قبل البانر
+                        Container(height=55),
                     ],
                     scroll=ScrollMode.AUTO,
                     expand=True,
@@ -8693,7 +8708,8 @@ class fadlPage:
                         ),
                         
                         *step_widgets,
-                        
+                        # 🔹 إضافة مسافة فارغة في الأسفل لتوفير مساحة قبل البانر
+                        Container(height=55),
                     ],
                     scroll=ScrollMode.AUTO,
                     expand=True,
@@ -8856,6 +8872,8 @@ class hajjPage:
                     controls=[
                         Container(),
                         *step_widgets,
+                        # 🔹 إضافة مسافة فارغة في الأسفل لتوفير مساحة قبل البانر
+                        Container(height=55),
                     ],
                     scroll=ScrollMode.AUTO,
                     expand=True,
@@ -9820,7 +9838,8 @@ class CalendarPage:
                         )
                     )
                 ],
-                spacing=8
+                spacing=8,
+                height=210
             )
         )
         
@@ -10498,8 +10517,10 @@ async def main(page: Page):
             bottom=0,
             left=0,
             right=0,
+            visible=False,  # مخفي في الصفحة الرئيسية — يظهر عند الانتقال لصفحات أخرى
         )
         page.overlay.append(global_banner)
+        page._global_banner = global_banner  # حفظ المرجع للتحكم فيه لاحقاً
         safe_update(page)
 
     # نتحقق هل الترحيب ظهر من قبل أم لا
@@ -10865,6 +10886,16 @@ async def main(page: Page):
         
         # إضافة الصفحة إلى المكدس وتحديثها
         page.views.append(view)
+
+        # إخفاء الإعلان العالمي في الصفحة الرئيسية فقط، وإظهاره في باقي الصفحات
+        banner = getattr(page, "_global_banner", None)
+        if banner is not None:
+            banner.visible = (route != "/")
+            try:
+                banner.update()
+            except Exception:
+                pass
+
         safe_update(page)
 
     # معالج تغيير المسار
@@ -10876,6 +10907,16 @@ async def main(page: Page):
         if len(page.views) > 1:
             page.views.pop()
             page.route = page.views[-1].route  # ✅ تحديث الـ route أيضاً
+
+            # إخفاء الإعلان العالمي عند الرجوع للصفحة الرئيسية
+            banner = getattr(page, "_global_banner", None)
+            if banner is not None:
+                banner.visible = (page.route != "/")
+                try:
+                    banner.update()
+                except Exception:
+                    pass
+
             safe_update(page)
         else:
             try:
