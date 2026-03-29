@@ -41,6 +41,30 @@ def is_mobile(page: ft.Page) -> bool:
     """التحقق هل التطبيق يعمل على هاتف"""
     return page.platform in (ft.PagePlatform.ANDROID, ft.PagePlatform.IOS)
 
+
+def wrap_with_ad(main_content, page_ref):
+    """يلف المحتوى في Stack مع إعلان شفاف يطفو في الأسفل — مثل AzkarPage تماماً"""
+    if not is_mobile(page_ref):
+        return main_content
+    return ft.Stack(
+        controls=[
+            main_content,
+            Container(
+                content=fta.BannerAd(
+                    unit_id=get_ad_id(page_ref, "banner"),
+                    on_error=lambda e: print("BannerAd error:", e.data),
+                ),
+                width=320,
+                height=50,
+                bottom=0,
+                left=0,
+                right=0,
+                alignment=ft.Alignment(0, 1),
+            ),
+        ],
+        expand=True,
+    )
+
 def safe_update(page):
     try:
         page.update()
@@ -1067,17 +1091,6 @@ class HabitCalendarPage:
             controls=[
                 header,
                 main_content,
-                # ══════ بانر الإعلان يطفو بدون خلفية ══════
-                Container(
-                    content=fta.BannerAd(
-                        unit_id=get_ad_id(self.page, "banner"),
-                        on_error=lambda e: print("BannerAd error:", e.data),
-                    ),
-                    width=320,
-                    height=50,
-                    alignment=ft.Alignment(0, 0),
-                ) if is_mobile(self.page) else Container(height=0),
-                # ══════════════════════════════════════════
             ],
             bgcolor="#f5f5f5",
             padding=0,
@@ -2007,17 +2020,6 @@ class DailyGoalsPage:
                     ),
                 ),
                 content,
-                # ══════ بانر الإعلان يطفو بدون خلفية ══════
-                Container(
-                    content=fta.BannerAd(
-                        unit_id=get_ad_id(self.page, "banner"),
-                        on_error=lambda e: print("BannerAd error:", e.data),
-                    ),
-                    width=320,
-                    height=50,
-                    alignment=ft.Alignment(0, 0),
-                ) if is_mobile(self.page) else Container(height=0),
-                # ══════════════════════════════════════════
             ],
             bgcolor="#ffffff",
             padding=0,
@@ -2369,17 +2371,6 @@ class MyAzkarPage:
                     padding=0,
                     expand=True
                 ),
-                # ══════ بانر الإعلان يطفو بدون خلفية ══════
-                Container(
-                    content=fta.BannerAd(
-                        unit_id=get_ad_id(self.page, "banner"),
-                        on_error=lambda e: print("BannerAd error:", e.data),
-                    ),
-                    width=320,
-                    height=50,
-                    alignment=ft.Alignment(0, 0),
-                ) if is_mobile(self.page) else Container(height=0),
-                # ══════════════════════════════════════════
             ],
             bgcolor="#f5f5f5",
             padding=0,
@@ -4101,17 +4092,6 @@ class LearnPrayerPage:
                     expand=True,
                     bgcolor="#d7d9db"
                 ),
-                # ══════ بانر الإعلان يطفو بدون خلفية ══════
-                Container(
-                    content=fta.BannerAd(
-                        unit_id=get_ad_id(page, "banner"),
-                        on_error=lambda e: print("BannerAd error:", e.data),
-                    ),
-                    width=320,
-                    height=50,
-                    alignment=ft.Alignment(0, 0),
-                ) if is_mobile(page) else Container(height=0),
-                # ══════════════════════════════════════════
             ],
             padding=0,
             spacing=0,
@@ -4655,17 +4635,6 @@ class IslamicLibraryPage:
                         expand=True
                     )
                 ),
-                # ══════ بانر الإعلان يطفو بدون خلفية ══════
-                Container(
-                    content=fta.BannerAd(
-                        unit_id=get_ad_id(page, "banner"),
-                        on_error=lambda e: print("BannerAd error:", e.data),
-                    ),
-                    width=320,
-                    height=50,
-                    alignment=ft.Alignment(0, 0),
-                ) if is_mobile(page) else Container(height=0),
-                # ══════════════════════════════════════════
             ],
             bgcolor="#f1f5f9",
             padding=0,
@@ -4869,17 +4838,6 @@ class TasbihPage:
                         horizontal_alignment=CrossAxisAlignment.CENTER
                     )
                 ),
-                # ══════ بانر الإعلان يطفو بدون خلفية ══════
-                Container(
-                    content=fta.BannerAd(
-                        unit_id=get_ad_id(self.page, "banner"),
-                        on_error=lambda e: print("BannerAd error:", e.data),
-                    ),
-                    width=320,
-                    height=50,
-                    alignment=ft.Alignment(0, 0),
-                ) if is_mobile(self.page) else Container(height=0),
-                # ══════════════════════════════════════════
             ],
             bgcolor="#f8f9fa",
             padding=0
@@ -5290,17 +5248,6 @@ class TasbihPage:
                         padding=10
                     )
                 ),
-                # ══════ بانر الإعلان يطفو بدون خلفية ══════
-                Container(
-                    content=fta.BannerAd(
-                        unit_id=get_ad_id(self.page, "banner"),
-                        on_error=lambda e: print("BannerAd error:", e.data),
-                    ),
-                    width=320,
-                    height=50,
-                    alignment=ft.Alignment(0, 0),
-                ) if is_mobile(self.page) else Container(height=0),
-                # ══════════════════════════════════════════
             ],
             bgcolor="#f8f9fa",
             padding=0,
@@ -5391,17 +5338,6 @@ class QiblaWebViewPage:
                     padding=0,
                     expand=True,
                 ),
-                # ══════ بانر الإعلان يطفو بدون خلفية ══════
-                Container(
-                    content=fta.BannerAd(
-                        unit_id=get_ad_id(self.page, "banner"),
-                        on_error=lambda e: print("BannerAd error:", e.data),
-                    ),
-                    width=320,
-                    height=50,
-                    alignment=ft.Alignment(0, 0),
-                ) if is_mobile(self.page) else Container(height=0),
-                # ══════════════════════════════════════════
             ],
             bgcolor="#feffff",
             padding=0,
@@ -5481,17 +5417,6 @@ class PrayerTimesPage:
                     bgcolor="#f5f7fa",
                     alignment=ft.Alignment(0, 0)
                 ),
-                # ══════ بانر الإعلان يطفو بدون خلفية ══════
-                Container(
-                    content=fta.BannerAd(
-                        unit_id=get_ad_id(self.page, "banner"),
-                        on_error=lambda e: print("BannerAd error:", e.data),
-                    ),
-                    width=320,
-                    height=50,
-                    alignment=ft.Alignment(0, 0),
-                ) if is_mobile(self.page) else Container(height=0),
-                # ══════════════════════════════════════════
             ],
             padding=0,
             spacing=0,
@@ -7451,17 +7376,6 @@ class WuduLearningPage:
                     expand=True,
                     bgcolor="#e2e5e7"
                 ),
-                # ══════ بانر الإعلان يطفو بدون خلفية ══════
-                Container(
-                    content=fta.BannerAd(
-                        unit_id=get_ad_id(page, "banner"),
-                        on_error=lambda e: print("BannerAd error:", e.data),
-                    ),
-                    width=320,
-                    height=50,
-                    alignment=ft.Alignment(0, 0),
-                ) if is_mobile(page) else Container(height=0),
-                # ══════════════════════════════════════════
             ],
             padding=0,
             spacing=0,
@@ -7537,17 +7451,6 @@ class TimedSunanPage:
                         alignment=MainAxisAlignment.START,
                         horizontal_alignment=CrossAxisAlignment.CENTER,
                     ),
-                    # ══════ بانر الإعلان يطفو بدون خلفية ══════
-                    Container(
-                        content=fta.BannerAd(
-                            unit_id=get_ad_id(page, "banner"),
-                            on_error=lambda e: print("BannerAd error:", e.data),
-                        ),
-                        width=320,
-                        height=50,
-                        alignment=ft.Alignment(0, 0),
-                    ) if is_mobile(page) else Container(height=0),
-                    # ══════════════════════════════════════════
                 ],
                 bgcolor="#E4E9E9",
                 padding=0,
@@ -7637,17 +7540,6 @@ class TimedSunanPage:
                     bgcolor="#FFFFFF",
                     alignment=ft.Alignment(0, 0),
                 ),
-                # ══════ بانر الإعلان يطفو بدون خلفية ══════
-                Container(
-                    content=fta.BannerAd(
-                        unit_id=get_ad_id(page, "banner"),
-                        on_error=lambda e: print("BannerAd error:", e.data),
-                    ),
-                    width=320,
-                    height=50,
-                    alignment=ft.Alignment(0, 0),
-                ) if is_mobile(page) else Container(height=0),
-                # ══════════════════════════════════════════
             ],
             bgcolor="#FFFFFF",
             padding=0,
@@ -7727,17 +7619,6 @@ class UntimedSunanPage:
                         alignment=MainAxisAlignment.START,
                         horizontal_alignment=CrossAxisAlignment.CENTER,
                     ),
-                    # ══════ بانر الإعلان يطفو بدون خلفية ══════
-                    Container(
-                        content=fta.BannerAd(
-                            unit_id=get_ad_id(page, "banner"),
-                            on_error=lambda e: print("BannerAd error:", e.data),
-                        ),
-                        width=320,
-                        height=50,
-                        alignment=ft.Alignment(0, 0),
-                    ) if is_mobile(page) else Container(height=0),
-                    # ══════════════════════════════════════════
                 ],
                 bgcolor="#e9ecec",
                 padding=0,
@@ -7827,17 +7708,6 @@ class UntimedSunanPage:
                     bgcolor="#FFFFFF",
                     alignment=ft.Alignment(0, 0),
                 ),
-                # ══════ بانر الإعلان يطفو بدون خلفية ══════
-                Container(
-                    content=fta.BannerAd(
-                        unit_id=get_ad_id(page, "banner"),
-                        on_error=lambda e: print("BannerAd error:", e.data),
-                    ),
-                    width=320,
-                    height=50,
-                    alignment=ft.Alignment(0, 0),
-                ) if is_mobile(page) else Container(height=0),
-                # ══════════════════════════════════════════
             ],
             bgcolor="#FFFFFF",
             padding=0,
@@ -9989,17 +9859,6 @@ class CalendarPage:
                     expand=True,
                     bgcolor="#f5f7fa"
                 ),
-                # ══════ بانر الإعلان يطفو بدون خلفية ══════
-                Container(
-                    content=fta.BannerAd(
-                        unit_id=get_ad_id(self.page, "banner"),
-                        on_error=lambda e: print("BannerAd error:", e.data),
-                    ),
-                    width=320,
-                    height=50,
-                    alignment=ft.Alignment(0, 0),
-                ) if is_mobile(self.page) else Container(height=0),
-                # ══════════════════════════════════════════
             ],
             bgcolor="#f5f7fa",
             padding=0
@@ -10552,17 +10411,6 @@ class SearchPage:
                     expand=True,
                     bgcolor="#f0f2f5",
                 ),
-                # ══════ بانر الإعلان يطفو بدون خلفية ══════
-                Container(
-                    content=fta.BannerAd(
-                        unit_id=get_ad_id(page, "banner"),
-                        on_error=lambda e: print("BannerAd error:", e.data),
-                    ),
-                    width=320,
-                    height=50,
-                    alignment=ft.Alignment(0, 0),
-                ) if is_mobile(page) else Container(height=0),
-                # ══════════════════════════════════════════
             ],
             bgcolor="#f0f2f5",
             padding=0
@@ -10633,6 +10481,26 @@ async def main(page: Page):
         BUTTON_FONT: FONT_FILE,
         FONT_QURAN: FONT_QURAN
     }
+
+    # ══════════════════════════════════════════════
+    # إعلان البانر الشفاف العالمي — يطفو في أسفل الشاشة
+    # بدون أي خلفية خلفه في جميع الصفحات
+    # ══════════════════════════════════════════════
+    if is_mobile(page):
+        global_banner = Container(
+            content=fta.BannerAd(
+                unit_id=get_ad_id(page, "banner"),
+                on_error=lambda e: print("Global BannerAd error:", e.data),
+            ),
+            width=page.width if page.width else 320,
+            height=50,
+            alignment=ft.Alignment(0, 0),
+            bottom=0,
+            left=0,
+            right=0,
+        )
+        page.overlay.append(global_banner)
+        safe_update(page)
 
     # نتحقق هل الترحيب ظهر من قبل أم لا
     show_welcome = not os.path.exists("welcome_seen.txt")
