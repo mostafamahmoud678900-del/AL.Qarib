@@ -3811,12 +3811,9 @@ class AzkarPage:
             ),
         )
 
-        view = View(
-            route=route_name,
+        ad_overlay = ft.Stack(
             controls=[
-                app_bar,
                 main_container,
-                # ══════ بانر الإعلان في أسفل الصفحة ══════
                 Container(
                     content=fta.BannerAd(
                         unit_id=get_ad_id(page, "banner"),
@@ -3824,9 +3821,20 @@ class AzkarPage:
                     ),
                     width=320,
                     height=50,
-                    alignment=ft.Alignment(0, 0),
-                ) if is_mobile(page) else Container(height=0),
-                # ══════════════════════════════════════════
+                    alignment=ft.Alignment(0, 1),
+                    bottom=0,
+                    left=0,
+                    right=0,
+                ),
+            ],
+            expand=True,
+        ) if is_mobile(page) else main_container
+
+        view = View(
+            route=route_name,
+            controls=[
+                app_bar,
+                ad_overlay,
             ],
             horizontal_alignment=CrossAxisAlignment.CENTER,
             bgcolor="#dee4e4",
@@ -6496,10 +6504,6 @@ class PrayerTimesPage:
         prayer_times_page = PrayerTimesPage(page)
         return prayer_times_page.create_view()
     
-
-    
-    
-
 # ============ صفحة الإعدادات المعدلة بشكل عصري ومتجاوب ============
 class SettingsPage:
     def __init__(self, page: Page):
