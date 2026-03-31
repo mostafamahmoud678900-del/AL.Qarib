@@ -23,82 +23,56 @@ class AdsManager:
     def __init__(self, page: ft.Page):
         self.page = page
         self.counter = 0
-        self.interstitial = None
-        self._ad_loaded = False
+        self._ad_unit_id = None
+        self._interstitial = None
 
         if is_mobile(page):
             ad_ids = {
                 ft.PagePlatform.ANDROID: "ca-app-pub-3940256099942544/1033173712",
                 ft.PagePlatform.IOS: "ca-app-pub-3940256099942544/4411468910",
             }
-            self.interstitial = fta.InterstitialAd(
-                unit_id=ad_ids.get(page.platform, ad_ids[ft.PagePlatform.ANDROID]),
-                on_load=self._on_ad_loaded,
-                on_error=lambda e: print(f"❌ InterstitialAd error: {e.data}"),
-                on_open=lambda e: print("📱 InterstitialAd opened"),
-                on_close=lambda e: self._on_ad_close(),
-                on_impression=lambda e: print("👁️ InterstitialAd impression"),
-                on_click=lambda e: print("🖱️ InterstitialAd clicked"),
-            )
-            self.page.overlay.append(self.interstitial)
+            self._ad_unit_id = ad_ids.get(page.platform, ad_ids[ft.PagePlatform.ANDROID])
+            self._load_new_ad()
 
-    def _on_ad_loaded(self, e):
-        self._ad_loaded = True
-        print("✅ InterstitialAd loaded and READY")
-
-    async def show_ad(self):
-        if self.interstitial is None:
+    def _load_new_ad(self):
+        if not self._ad_unit_id:
             return
 
-        self.counter += 1
-        # عرض الإعلان كل 3 انتقالات فقط (1، 4، 7 ...) — يمنع الإشباع
-        if self.counter % 3 != 1:
-            print(f"⏭️ Skipping ad #{self.counter}")
-            return
-
-        # انتظر حتى يتحمل الإعلان (max 3 ثواني)
-        for _ in range(30):
-            if self._ad_loaded:
-                break
-            await asyncio.sleep(0.1)
-
-        if not self._ad_loaded:
-            print("⚠️ Ad not loaded yet, skipping")
-            return
-
-        try:
-            await self.interstitial.show()
-            self._ad_loaded = False
-            print(f"🎯 Showing ad #{self.counter}")
-        except Exception as e:
-            print(f"⚠️ Error showing ad: {e}")
-
-    def _on_ad_close(self):
-        if self.interstitial is None:
-            return
-        if self.interstitial in self.page.overlay:
-            self.page.overlay.remove(self.interstitial)
-
-        # إنشاء إعلان جديد جاهز للمرة القادمة
-        if not is_mobile(self.page):
+        def on_close(e):
+            # بعد الإغلاق، نشيل القديم ونحمّل جديد
+            if self._interstitial in self.page.overlay:
+                self.page.overlay.remove(self._interstitial)
+            self._load_new_ad()
             safe_update(self.page)
-            return
-        ad_ids = {
-            ft.PagePlatform.ANDROID: "ca-app-pub-3940256099942544/1033173712",
-            ft.PagePlatform.IOS: "ca-app-pub-3940256099942544/4411468910",
-        }
-        self._ad_loaded = False
-        self.interstitial = fta.InterstitialAd(
-            unit_id=ad_ids.get(self.page.platform, ad_ids[ft.PagePlatform.ANDROID]),
-            on_load=self._on_ad_loaded,
+
+        self._interstitial = fta.InterstitialAd(
+            unit_id=self._ad_unit_id,
+            on_load=lambda e: print("✅ InterstitialAd loaded"),
             on_error=lambda e: print(f"❌ InterstitialAd error: {e.data}"),
             on_open=lambda e: print("📱 InterstitialAd opened"),
-            on_close=lambda e: self._on_ad_close(),
+            on_close=on_close,
             on_impression=lambda e: print("👁️ InterstitialAd impression"),
             on_click=lambda e: print("🖱️ InterstitialAd clicked"),
         )
-        self.page.overlay.append(self.interstitial)
+
+        # ✅ نضيفه للـ overlay فقط لتفعيل التحميل — مش للعرض
+        self.page.overlay.append(self._interstitial)
         safe_update(self.page)
+
+    async def show_ad(self):
+        if not self._ad_unit_id or not self._interstitial:
+            return
+
+        self.counter += 1
+        if self.counter % 3 != 1:
+            return
+
+        try:
+            # ✅ show() هي اللي بتعرضه — مش وجوده في overlay
+            await self._interstitial.show()
+            print(f"🎯 Showing ad #{self.counter}")
+        except Exception as e:
+            print(f"⚠️ Error showing ad: {e}")
 
 
 
