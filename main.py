@@ -18,6 +18,91 @@ import random
 import pickle
 TASBIH_FILE = "tasbih_data.json"
 
+
+class AdsManager:
+    def __init__(self, page: ft.Page):
+        self.page = page
+        self.counter = 0
+        self.interstitial = None
+        self._ad_loaded = False
+
+        if is_mobile(page):
+            ad_ids = {
+                ft.PagePlatform.ANDROID: "ca-app-pub-3940256099942544/1033173712",
+                ft.PagePlatform.IOS: "ca-app-pub-3940256099942544/4411468910",
+            }
+            self.interstitial = fta.InterstitialAd(
+                unit_id=ad_ids.get(page.platform, ad_ids[ft.PagePlatform.ANDROID]),
+                on_load=self._on_ad_loaded,
+                on_error=lambda e: print(f"❌ InterstitialAd error: {e.data}"),
+                on_open=lambda e: print("📱 InterstitialAd opened"),
+                on_close=lambda e: self._on_ad_close(),
+                on_impression=lambda e: print("👁️ InterstitialAd impression"),
+                on_click=lambda e: print("🖱️ InterstitialAd clicked"),
+            )
+            self.page.overlay.append(self.interstitial)
+
+    def _on_ad_loaded(self, e):
+        self._ad_loaded = True
+        print("✅ InterstitialAd loaded and READY")
+
+    async def show_ad(self):
+        if self.interstitial is None:
+            return
+
+        self.counter += 1
+        # عرض الإعلان كل 3 انتقالات فقط (1، 4، 7 ...) — يمنع الإشباع
+        if self.counter % 3 != 1:
+            print(f"⏭️ Skipping ad #{self.counter}")
+            return
+
+        # انتظر حتى يتحمل الإعلان (max 3 ثواني)
+        for _ in range(30):
+            if self._ad_loaded:
+                break
+            await asyncio.sleep(0.1)
+
+        if not self._ad_loaded:
+            print("⚠️ Ad not loaded yet, skipping")
+            return
+
+        try:
+            await self.interstitial.show()
+            self._ad_loaded = False
+            print(f"🎯 Showing ad #{self.counter}")
+        except Exception as e:
+            print(f"⚠️ Error showing ad: {e}")
+
+    def _on_ad_close(self):
+        if self.interstitial is None:
+            return
+        if self.interstitial in self.page.overlay:
+            self.page.overlay.remove(self.interstitial)
+
+        # إنشاء إعلان جديد جاهز للمرة القادمة
+        if not is_mobile(self.page):
+            safe_update(self.page)
+            return
+        ad_ids = {
+            ft.PagePlatform.ANDROID: "ca-app-pub-3940256099942544/1033173712",
+            ft.PagePlatform.IOS: "ca-app-pub-3940256099942544/4411468910",
+        }
+        self._ad_loaded = False
+        self.interstitial = fta.InterstitialAd(
+            unit_id=ad_ids.get(self.page.platform, ad_ids[ft.PagePlatform.ANDROID]),
+            on_load=self._on_ad_loaded,
+            on_error=lambda e: print(f"❌ InterstitialAd error: {e.data}"),
+            on_open=lambda e: print("📱 InterstitialAd opened"),
+            on_close=lambda e: self._on_ad_close(),
+            on_impression=lambda e: print("👁️ InterstitialAd impression"),
+            on_click=lambda e: print("🖱️ InterstitialAd clicked"),
+        )
+        self.page.overlay.append(self.interstitial)
+        safe_update(self.page)
+
+
+
+
 # ══════════════════════════════════════════════
 #  إعدادات إعلانات AdMob
 #  استبدل هذه القيم بمعرّفاتك الحقيقية عند النشر
@@ -81,8 +166,10 @@ def setup_interstitial_ad(page: ft.Page):
     pass  # TODO: إعادة التفعيل عند توفر InterstitialAd
 
 async def show_interstitial_ad(page: ft.Page):
-    """معطّلة مؤقتاً — InterstitialAd غير متوفرة في flet-ads 0.83.0"""
-    pass  # TODO: إعادة التفعيل عند توفر InterstitialAd
+    """تشغيل الإعلان البيني عبر AdsManager"""
+    manager = getattr(page, "_ads_manager", None)
+    if manager:
+        await manager.show_ad()
 
 def _make_interstitial(page: ft.Page):
     """معطّلة مؤقتاً — InterstitialAd غير متوفرة في flet-ads 0.83.0"""
@@ -10439,6 +10526,8 @@ class SearchPage:
 
 # تعريف قائمة لتتبع سجل التنقل
 async def main(page: Page):
+    ads_manager = AdsManager(page)
+    page._ads_manager = ads_manager  # تخزينه في الصفحة للوصول منها
     # إخفاء أخطاء الاتصال عند الإغلاق
     if sys.platform == "win32":
         try:
@@ -10473,10 +10562,8 @@ async def main(page: Page):
         # تهيئة ملف العادات
     init_habits_file()
 
-    # بدء التطبيق بالصفحة الرئيسية
+    # بدء التطبيق بالصفحة الرئيسية — سيتم البناء الحقيقي لاحقاً عبر navigate("/")
     page.views.clear()
-    page.views.append(HomePage.create(page))
-    safe_update(page)
 
     
     # ── تعطيل انيميشن التنقل تماماً ──────────────────────────────
@@ -10724,12 +10811,19 @@ async def main(page: Page):
         return page_cache[route]
 
     # دالة التنقل الرئيسية - بسيطة جداً مثل القديم
-    def navigate(route):
+    # دالة التنقل الرئيسية — async لدعم الإعلان
+    async def navigate(route):
         print(f"الانتقال إلى: {route}")
         
         # إذا كنا في نفس الصفحة، لا تفعل شيئاً
         if page.views and page.views[-1].route == route:
             return
+
+        # عرض الإعلان قبل الانتقال (على الهاتف فقط، وليس الصفحة الرئيسية)
+        if route != "/" and is_mobile(page):
+            manager = getattr(page, "_ads_manager", None)
+            if manager:
+                await manager.show_ad()
         
         # بناء الصفحة المطلوبة
         if route == "/":
@@ -10748,11 +10842,9 @@ async def main(page: Page):
             view = hajjPage.create(page)
             
         elif route == "/azkar_sabah":
-            # page.run_task(show_interstitial_ad, page)  # TODO: إعادة التفعيل عند توفر InterstitialAd في 0.83.0+
             view = AzkarPage.create(get_azkar_sabah(), "أذكار الصباح", route, page)
             
         elif route == "/azkar_masaa":
-            # page.run_task(show_interstitial_ad, page)  # TODO: إعادة التفعيل عند توفر InterstitialAd في 0.83.0+
             view = AzkarPage.create(get_azkar_masaa(), "أذكار المساء", route, page)
             
         elif route == "/azkar_baad_salah":
@@ -10816,11 +10908,9 @@ async def main(page: Page):
             view = AzkarPage.create(get_Nabawi_Mosque(), "أدعية النبي ﷺ", route, page)
             
         elif route == "/islamic_library":
-            # page.run_task(show_interstitial_ad, page)  # TODO: إعادة التفعيل عند توفر InterstitialAd في 0.83.0+
             view = IslamicLibraryPage.create(page)
             
         elif route == "/learn_prayer":
-            # page.run_task(show_interstitial_ad, page)  # TODO: إعادة التفعيل عند توفر InterstitialAd في 0.83.0+
             view = LearnPrayerPage.create(page)
             
         elif route == "/quran": 
@@ -10838,26 +10928,21 @@ async def main(page: Page):
                 view = QuranIndexPage.create(page)
                 
         elif route == "/electronic_tasbih":
-            # page.run_task(show_interstitial_ad, page)  # TODO: إعادة التفعيل عند توفر InterstitialAd في 0.83.0+
             view = TasbihPage(page).get_view()
             
         elif route == "/prayer_times":
-            # page.run_task(show_interstitial_ad, page)  # TODO: إعادة التفعيل عند توفر InterstitialAd في 0.83.0+
             view = PrayerTimesPage.create(page)
             
         elif route == "/settings":
             view = SettingsPage.create(page)
             
         elif route == "/wudu_learning":
-            # page.run_task(show_interstitial_ad, page)  # TODO: إعادة التفعيل عند توفر InterstitialAd في 0.83.0+
             view = WuduLearningPage.create(page)
             
         elif route == "/timed_sunan":
-            # page.run_task(show_interstitial_ad, page)  # TODO: إعادة التفعيل عند توفر InterstitialAd في 0.83.0+
             view = TimedSunanPage.create(page)
             
         elif route == "/untimed_sunan":
-            # page.run_task(show_interstitial_ad, page)  # TODO: إعادة التفعيل عند توفر InterstitialAd في 0.83.0+
             view = UntimedSunanPage.create(page)
             
         elif route == "/my_azkar":
@@ -10873,11 +10958,9 @@ async def main(page: Page):
             view = fadlPage.create(page)
             
         elif route == "/daily_goals":
-            # page.run_task(show_interstitial_ad, page)  # TODO: إعادة التفعيل عند توفر InterstitialAd في 0.83.0+
             view = DailyGoalsPage(page).get_view()
             
         elif route == "/calendar":
-            # page.run_task(show_interstitial_ad, page)  # TODO: إعادة التفعيل عند توفر InterstitialAd في 0.83.0+
             view = CalendarPage.create(page)
             
         else:
@@ -10887,7 +10970,7 @@ async def main(page: Page):
         # إضافة الصفحة إلى المكدس وتحديثها
         page.views.append(view)
 
-        # إخفاء الإعلان العالمي في الصفحة الرئيسية فقط، وإظهاره في باقي الصفحات
+        # إخفاء/إظهار البانر العالمي
         banner = getattr(page, "_global_banner", None)
         if banner is not None:
             banner.visible = (route != "/")
@@ -10898,17 +10981,16 @@ async def main(page: Page):
 
         safe_update(page)
 
-    # معالج تغيير المسار
+    # معالج تغيير المسار — run_task فقط لأن navigate أصبحت async
     def route_change(e):
-        navigate(page.route)
+        page.run_task(navigate, page.route)
 
     # معالج الرجوع
     def view_pop(e):
         if len(page.views) > 1:
             page.views.pop()
-            page.route = page.views[-1].route  # ✅ تحديث الـ route أيضاً
+            page.route = page.views[-1].route
 
-            # إخفاء الإعلان العالمي عند الرجوع للصفحة الرئيسية
             banner = getattr(page, "_global_banner", None)
             if banner is not None:
                 banner.visible = (page.route != "/")
@@ -10924,17 +11006,15 @@ async def main(page: Page):
             except Exception:
                 pass
 
-    # تعيين الدوال — view_pop هي المعالج الوحيد لزر الرجوع
-    page.navigate = navigate
+    # تعيين الدوال
+    # navigate هي async، لذا نلفّها بـ run_task حتى تعمل عند الاستدعاء العادي من الأزرار
+    page.navigate = lambda route: page.run_task(navigate, route)
     page.on_route_change = route_change
     page.on_view_pop = view_pop
 
-    # تهيئة ملف العادات
-    init_habits_file()
-
     # بدء التطبيق بالصفحة الرئيسية
     page.views.clear()
-    page.views.append(HomePage.create(page))
+    await navigate("/")
     safe_update(page)
 
 # تشغيل التطبيق
