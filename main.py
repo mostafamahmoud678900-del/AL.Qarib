@@ -38,26 +38,22 @@ class AdsManager:
         if not self._ad_unit_id:
             return
 
-        def on_close(e):
-            # بعد الإغلاق، نشيل القديم ونحمّل جديد
-            if self._interstitial in self.page.overlay:
-                self.page.overlay.remove(self._interstitial)
-            self._load_new_ad()
-            safe_update(self.page)
-
         self._interstitial = fta.InterstitialAd(
             unit_id=self._ad_unit_id,
-            on_load=lambda e: print("✅ InterstitialAd loaded"),
-            on_error=lambda e: print(f"❌ InterstitialAd error: {e.data}"),
-            on_open=lambda e: print("📱 InterstitialAd opened"),
-            on_close=on_close,
-            on_impression=lambda e: print("👁️ InterstitialAd impression"),
-            on_click=lambda e: print("🖱️ InterstitialAd clicked"),
+            on_load=lambda e: print("✅ loaded"),
+            on_error=lambda e: print(f"❌ error: {e.data}"),
+            on_open=lambda e: print("📱 opened"),
+            on_close=self._on_ad_close,
         )
 
-        # ✅ نضيفه للـ overlay فقط لتفعيل التحميل — مش للعرض
-        self.page.overlay.append(self._interstitial)
+        # ✅ في 0.83.x لازم page.services مش page.overlay
+        self.page.services.append(self._interstitial)
         safe_update(self.page)
+
+    def _on_ad_close(self, e):
+        if self._interstitial in self.page.services:
+            self.page.services.remove(self._interstitial)
+        self._load_new_ad()
 
     async def show_ad(self):
         if not self._ad_unit_id or not self._interstitial:
@@ -68,11 +64,9 @@ class AdsManager:
             return
 
         try:
-            # ✅ show() هي اللي بتعرضه — مش وجوده في overlay
             await self._interstitial.show()
-            print(f"🎯 Showing ad #{self.counter}")
-        except Exception as e:
-            print(f"⚠️ Error showing ad: {e}")
+        except Exception as ex:
+            print(f"⚠️ error: {ex}")
 
 
 
