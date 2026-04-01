@@ -7,7 +7,7 @@ dependencies = [
 ]
 
 [tool.flet]
-org = "com.yourname"
+org = "com.islamic.alqarib"
 
 # معرّف AdMob لأندرويد
 [tool.flet.android.meta_data]
