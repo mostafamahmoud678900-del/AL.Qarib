@@ -28,8 +28,8 @@ class AdsManager:
 
         if is_mobile(page):
             ad_ids = {
-                ft.PagePlatform.ANDROID: "ca-app-pub-3940256099942544/1033173712",
-                ft.PagePlatform.IOS: "ca-app-pub-3940256099942544/4411468910",
+                ft.PagePlatform.ANDROID: "ca-app-pub-9178517854331057/4196910270",
+                
             }
             self._ad_unit_id = ad_ids.get(page.platform, ad_ids[ft.PagePlatform.ANDROID])
             self._load_new_ad()
@@ -77,13 +77,10 @@ class AdsManager:
 # ══════════════════════════════════════════════
 AD_IDS = {
     ft.PagePlatform.ANDROID: {
-        "banner": "ca-app-pub-3940256099942544/6300978111",
+        "banner": "ca-app-pub-9178517854331057/6667889892",
         # "interstitial": "ca-app-pub-3940256099942544/1033173712",  # TODO: تفعيل عند توفر في 0.83.0+
     },
-    ft.PagePlatform.IOS: {
-        "banner": "ca-app-pub-3940256099942544/2934735716",
-        # "interstitial": "ca-app-pub-3940256099942544/4411468910",  # TODO: تفعيل عند توفر في 0.83.0+
-    },
+    
 }
 
 def get_ad_id(page: ft.Page, ad_type: str) -> str:
@@ -4752,7 +4749,7 @@ class TasbihPage:
                 self.show_message(f"🎉 وصلت إلى {self.current['count']} تسبيحة!")
 
     def heartbeat_animation(self, button_container):
-        """تشغيل تأثير نبضات القلب على الزر - نبضة واحدة فقط للسرعة"""
+        """تشغيل تأثير نبضات القلب على الزر - تكبر بسيط ثم عودة"""
         if self.is_animating:
             return
         self.is_animating = True
@@ -4762,11 +4759,11 @@ class TasbihPage:
                 if not button_container or button_container.page is None:
                     self.is_animating = False
                     return
-                # نبضة واحدة بدلاً من 3 = 2 تحديثات بدلاً من 8
-                button_container.scale = 1.15
+                # تكبر بسيط من الحجم الأساسي ثم ترجع
+                button_container.scale = 1.38
                 button_container.update()
-                await asyncio.sleep(0.12)
-                button_container.scale = 1.0
+                await asyncio.sleep(0.10)
+                button_container.scale = 1.3
                 button_container.update()
             except Exception as e:
                 print(f"خطأ في تأثير النبض: {e}")
@@ -4936,7 +4933,7 @@ class TasbihPage:
         )
         
         number_container = Container(
-            width=180,  # أصغر قليلاً
+            width=180,
             height=180,
             alignment=ft.Alignment(0, 0),
             content=number_text
@@ -4980,13 +4977,13 @@ class TasbihPage:
             ]
         )
         
-        # إنشاء Container الزر مع تخزين مرجع له - حجم أصغر
+        # إنشاء Container الزر مع تخزين مرجع له
         self.button_ref = Container(
             width=180,
             height=180,
             animate_scale=True,
-            scale=1.3,  # حجم طبيعي أقل
-            animate=ft.Animation(50, AnimationCurve.EASE_OUT),
+            scale=1.3,  # الحجم الطبيعي الأساسي
+            animate=ft.Animation(80, AnimationCurve.EASE_OUT),
             margin=ft.Margin.all(0),
             content=button_stack
         )
@@ -10787,8 +10784,9 @@ async def main(page: Page):
         if page.views and page.views[-1].route == route:
             return
 
-        # عرض الإعلان قبل الانتقال (على الهاتف فقط، وليس الصفحة الرئيسية)
-        if route != "/" and is_mobile(page):
+        # عرض الإعلان قبل الانتقال (على الهاتف فقط، وليس الصفحة الرئيسية أو من نحن أو صدقة جارية)
+        NO_AD_ROUTES = {"/", "/about", "/sadaqa_gariya"}
+        if route not in NO_AD_ROUTES and is_mobile(page):
             manager = getattr(page, "_ads_manager", None)
             if manager:
                 await manager.show_ad()
@@ -10941,7 +10939,7 @@ async def main(page: Page):
         # إخفاء/إظهار البانر العالمي
         banner = getattr(page, "_global_banner", None)
         if banner is not None:
-            banner.visible = (route != "/")
+            banner.visible = route not in ("/", "/sadaqa_gariya", "/about") and not route.startswith("/quran/surah/")
             try:
                 banner.update()
             except Exception:
@@ -10961,7 +10959,7 @@ async def main(page: Page):
 
             banner = getattr(page, "_global_banner", None)
             if banner is not None:
-                banner.visible = (page.route != "/")
+                banner.visible = page.route not in ("/", "/sadaqa_gariya", "/about") and not page.route.startswith("/quran/surah/")
                 try:
                     banner.update()
                 except Exception:
