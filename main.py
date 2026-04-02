@@ -19,6 +19,7 @@ import pickle
 TASBIH_FILE = "tasbih_data.json"
 
 
+
 class AdsManager:
     def __init__(self, page: ft.Page):
         self.page = page
