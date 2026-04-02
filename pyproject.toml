@@ -1,5 +1,5 @@
 [project]
-name = "ALQarib"
+name = "alqarib"
 version = "1.0.0"
 dependencies = [
     "flet",
@@ -7,7 +7,7 @@ dependencies = [
 ]
 
 [tool.flet]
-org = "com.islamic.alqarib"
+org = "com.alqarib"  # ✅ غيّر yourname لاسم حقيقي
 
 # معرّف AdMob لأندرويد
 [tool.flet.android.meta_data]
