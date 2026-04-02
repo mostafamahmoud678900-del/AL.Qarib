@@ -48,24 +48,24 @@ jobs:
           distribution: temurin
           java-version: '21'
 
+      - name: Decode Keystore
+        run: |
+          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > alqarib.jks
+
       - name: Flutter doctor
         run: flutter doctor
 
-      - name: Decode Keystore
-        run: |
-          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > ${{ github.workspace }}/alqarib.jks
-
       - name: Build APK (split per ABI)
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
           flutter config --no-analytics
           flet build apk \
             --build-number=$BUILD_NUMBER \
             --build-version=$BUILD_VERSION \
             --split-per-abi \
-            --android-signing-key-store=${{ github.workspace }}/alqarib.jks \
-            --android-signing-key-store-password=${{ secrets.KEYSTORE_PASSWORD }} \
-            --android-signing-key-alias=${{ secrets.KEY_ALIAS }} \
-            --android-signing-key-password=${{ secrets.KEY_PASSWORD }} \
             --verbose
 
       - name: Upload APK (arm64-v8a)
@@ -126,23 +126,23 @@ jobs:
           distribution: temurin
           java-version: '21'
 
+      - name: Decode Keystore
+        run: |
+          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > alqarib.jks
+
       - name: Flutter doctor
         run: flutter doctor
 
-      - name: Decode Keystore
-        run: |
-          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > ${{ github.workspace }}/alqarib.jks
-
       - name: Build AAB
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
           flutter config --no-analytics
           flet build aab \
             --build-number=$BUILD_NUMBER \
             --build-version=$BUILD_VERSION \
-            --android-signing-key-store=${{ github.workspace }}/alqarib.jks \
-            --android-signing-key-store-password=${{ secrets.KEYSTORE_PASSWORD }} \
-            --android-signing-key-alias=${{ secrets.KEY_ALIAS }} \
-            --android-signing-key-password=${{ secrets.KEY_PASSWORD }} \
             --verbose
 
       - name: Upload AAB artifact
