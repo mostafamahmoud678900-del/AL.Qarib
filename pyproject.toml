@@ -7,12 +7,16 @@ dependencies = [
 ]
 
 [tool.flet]
-org = "com.alqarib"  # ✅ غيّر yourname لاسم حقيقي
+org = "com.alqarib"
 
-# معرّف AdMob لأندرويد
+[tool.flet.android]
+signing_key_store = "alqarib.jks"
+signing_key_store_password = "$(KEYSTORE_PASSWORD)"
+signing_key_alias = "$(KEY_ALIAS)"
+signing_key_password = "$(KEY_PASSWORD)"
+
 [tool.flet.android.meta_data]
 "com.google.android.gms.ads.APPLICATION_ID" = "ca-app-pub-9178517854331057~2091373767"
 
-# معرّف AdMob لـ iOS
 [tool.flet.ios.info]
 GADApplicationIdentifier = "ca-app-pub-9178517854331057~2091373767"
