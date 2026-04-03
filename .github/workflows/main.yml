@@ -54,7 +54,8 @@ jobs:
 
       - name: Decode Keystore
         run: |
-          echo "${{ secrets.KEYSTORE_BASE64 }}" | tr -d '\r\n ' | base64 --decode > alqarib.jks
+          mkdir -p build/flutter/android/app
+          echo "${{ secrets.KEYSTORE_BASE64 }}" | tr -d '\r\n ' | base64 --decode > build/flutter/android/app/alqarib.jks
 
       - name: Flutter doctor
         run: flutter doctor
@@ -136,7 +137,8 @@ jobs:
 
       - name: Decode Keystore
         run: |
-          echo "${{ secrets.KEYSTORE_BASE64 }}" | tr -d '\r\n ' | base64 --decode > alqarib.jks
+          mkdir -p build/flutter/android/app
+          echo "${{ secrets.KEYSTORE_BASE64 }}" | tr -d '\r\n ' | base64 --decode > build/flutter/android/app/alqarib.jks
 
       - name: Flutter doctor
         run: flutter doctor
