@@ -48,6 +48,10 @@ jobs:
           distribution: temurin
           java-version: '21'
 
+      - name: Accept Android licenses
+        run: |
+          yes | flutter doctor --android-licenses || true
+
       - name: Decode Keystore
         run: |
           echo "${{ secrets.KEYSTORE_BASE64 }}" | tr -d '\r\n ' | base64 --decode > alqarib.jks
@@ -125,6 +129,10 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
+
+      - name: Accept Android licenses
+        run: |
+          yes | flutter doctor --android-licenses || true
 
       - name: Decode Keystore
         run: |
