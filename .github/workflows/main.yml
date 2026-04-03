@@ -57,13 +57,6 @@ jobs:
           mkdir -p build/flutter/android/app
           echo "${{ secrets.KEYSTORE_BASE64 }}" | tr -d '\r\n ' | base64 --decode > build/flutter/android/app/alqarib.jks
 
-      - name: Verify Keystore
-        run: |
-          echo "Current directory: $(pwd)"
-          echo "Keystore location:"
-          find / -name "alqarib.jks" 2>/dev/null
-          ls -la build/flutter/android/app/ 2>/dev/null || echo "Directory not found"
-
       - name: Flutter doctor
         run: flutter doctor
 
@@ -142,13 +135,6 @@ jobs:
         run: |
           mkdir -p build/flutter/android/app
           echo "${{ secrets.KEYSTORE_BASE64 }}" | tr -d '\r\n ' | base64 --decode > build/flutter/android/app/alqarib.jks
-
-      - name: Verify Keystore
-        run: |
-          echo "Current directory: $(pwd)"
-          echo "Keystore location:"
-          find / -name "alqarib.jks" 2>/dev/null
-          ls -la build/flutter/android/app/ 2>/dev/null || echo "Directory not found"
 
       - name: Flutter doctor
         run: flutter doctor
