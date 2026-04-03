@@ -10,7 +10,7 @@ dependencies = [
 org = "com.alqarib"
 
 [tool.flet.android]
-signing_key_store = "/home/runner/work/AL.Qarib/AL.Qarib/build/flutter/android/app/alqarib.jks"
+signing_key_store = "build/flutter/android/app/alqarib.jks"
 signing_key_store_password = "12345678910"
 signing_key_alias = "alqarib"
 signing_key_password = "12345678910"
