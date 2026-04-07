@@ -45,7 +45,7 @@ jobs:
           cache: true
 
       # ─────────────────────────────────────────
-      # ☕ Java 17 (الأنسب لـ Android Gradle حالياً)
+      # ☕ Java
       # ─────────────────────────────────────────
       - name: Setup Java
         uses: actions/setup-java@v4
@@ -61,15 +61,25 @@ jobs:
           yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
 
       # ─────────────────────────────────────────
-      # 🔐 فك تشفير الـ Keystore
+      # 🔐 إعداد الـ Keystore
+      #
+      # المشكلة: flet build بيبني في مجلد مؤقت:
+      #   build/flutter/android/app/android/app/
+      # وبيدور على الـ keystore بـ path نسبي من جوّاه.
+      #
+      # الحل: نحط الـ keystore في جذر المشروع
+      # ونستخدم path نسبي صح يوصّله من مكان البناء.
       # ─────────────────────────────────────────
-      - name: Decode Keystore
+      - name: Setup Keystore
         run: |
-          mkdir -p android/app
-          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > android/app/alqarib.jks
+          # الـ keystore في جذر المشروع
+          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > $GITHUB_WORKSPACE/alqarib.jks
+
+          # تحقق من وجوده
+          ls -lh $GITHUB_WORKSPACE/alqarib.jks
 
       # ─────────────────────────────────────────
-      # 🛠️ Build APK — مع التوقيع الكامل
+      # 🛠️ Build APK — التوقيع بـ absolute path
       # ─────────────────────────────────────────
       - name: Build APK (Release + Signed)
         run: |
@@ -77,33 +87,33 @@ jobs:
           flet build apk \
             --build-number=${{ env.BUILD_NUMBER }} \
             --build-version=${{ env.BUILD_VERSION }} \
-            --android-signing-key-store=android/app/alqarib.jks \
+            --android-signing-key-store=$GITHUB_WORKSPACE/alqarib.jks \
             --android-signing-key-store-password=${{ secrets.KEY_STORE_PASSWORD }} \
             --android-signing-key-alias=${{ secrets.KEY_ALIAS }} \
             --android-signing-key-password=${{ secrets.KEY_PASSWORD }}
 
       # ─────────────────────────────────────────
-      # 📦 Build AAB — مع التوقيع الكامل
+      # 📦 Build AAB — التوقيع بـ absolute path
       # ─────────────────────────────────────────
       - name: Build AAB (Release + Signed)
         run: |
           flet build aab \
             --build-number=${{ env.BUILD_NUMBER }} \
             --build-version=${{ env.BUILD_VERSION }} \
-            --android-signing-key-store=android/app/alqarib.jks \
+            --android-signing-key-store=$GITHUB_WORKSPACE/alqarib.jks \
             --android-signing-key-store-password=${{ secrets.KEY_STORE_PASSWORD }} \
             --android-signing-key-alias=${{ secrets.KEY_ALIAS }} \
             --android-signing-key-password=${{ secrets.KEY_PASSWORD }}
 
       # ─────────────────────────────────────────
-      # ✅ التحقق من وجود الملفات
+      # 🔍 تحديد مكان الملفات المبنية
       # ─────────────────────────────────────────
-      - name: List build outputs
+      - name: Find build outputs
         run: |
           echo "=== APK files ==="
-          find . -name "*.apk" 2>/dev/null || echo "No APK found"
+          find $GITHUB_WORKSPACE -name "*.apk" 2>/dev/null
           echo "=== AAB files ==="
-          find . -name "*.aab" 2>/dev/null || echo "No AAB found"
+          find $GITHUB_WORKSPACE -name "*.aab" 2>/dev/null
 
       # ─────────────────────────────────────────
       # 📤 رفع APK
@@ -112,9 +122,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: app-release-apk
-          path: |
-            build/apk/*.apk
-            **/*.apk
+          path: "**/*.apk"
           if-no-files-found: warn
 
       # ─────────────────────────────────────────
@@ -124,14 +132,12 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: app-release-aab
-          path: |
-            build/aab/*.aab
-            **/*.aab
+          path: "**/*.aab"
           if-no-files-found: warn
 
       # ─────────────────────────────────────────
-      # 🗑️ حذف الـ Keystore من الـ runner بعد البناء
+      # 🗑️ تنظيف — حذف الـ keystore
       # ─────────────────────────────────────────
-      - name: Cleanup Keystore
+      - name: Cleanup
         if: always()
-        run: rm -f android/app/alqarib.jks
+        run: rm -f $GITHUB_WORKSPACE/alqarib.jks
