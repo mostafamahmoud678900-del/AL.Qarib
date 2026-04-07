@@ -2,13 +2,7 @@ name: Android Build (APK + AAB)
 
 on:
   push:
-    branches:
-      - master
-      - main
-  pull_request:
-    branches:
-      - master
-      - main
+    branches: [main, master]
   workflow_dispatch:
 
 env:
@@ -18,138 +12,126 @@ env:
   FLUTTER_VERSION: 3.41.4
 
 jobs:
-
-  build-apk:
-    name: Build APK (split per ABI)
+  build:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout code
+      # ─────────────────────────────────────────
+      # 📥 تحميل الكود
+      # ─────────────────────────────────────────
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Python ${{ env.PYTHON_VERSION }}
+      # ─────────────────────────────────────────
+      # 🐍 Python
+      # ─────────────────────────────────────────
+      - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
-      - name: Install Python dependencies
+      - name: Install Python deps
         run: |
-          python -m pip install --upgrade pip
+          pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Setup Flutter ${{ env.FLUTTER_VERSION }}
+      # ─────────────────────────────────────────
+      # 🟦 Flutter
+      # ─────────────────────────────────────────
+      - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
 
-      - name: Setup Java JDK 21
+      # ─────────────────────────────────────────
+      # ☕ Java 17 (الأنسب لـ Android Gradle حالياً)
+      # ─────────────────────────────────────────
+      - name: Setup Java
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '21'
+          java-version: '17'
 
-      - name: Accept Android licenses
+      # ─────────────────────────────────────────
+      # 📜 قبول رخص Android SDK
+      # ─────────────────────────────────────────
+      - name: Accept Android Licenses
         run: |
-          yes | flutter doctor --android-licenses || true
+          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
 
+      # ─────────────────────────────────────────
+      # 🔐 فك تشفير الـ Keystore
+      # ─────────────────────────────────────────
       - name: Decode Keystore
         run: |
-          mkdir -p build/flutter/android/app
-          echo "${{ secrets.KEYSTORE_BASE64 }}" | tr -d '\r\n ' | base64 --decode > build/flutter/android/app/alqarib.jks
+          mkdir -p android/app
+          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > android/app/alqarib.jks
 
-      - name: Flutter doctor
-        run: flutter doctor
-
-      - name: Build APK (split per ABI)
+      # ─────────────────────────────────────────
+      # 🛠️ Build APK — مع التوقيع الكامل
+      # ─────────────────────────────────────────
+      - name: Build APK (Release + Signed)
         run: |
           flutter config --no-analytics
           flet build apk \
-            --build-number=$BUILD_NUMBER \
-            --build-version=$BUILD_VERSION \
-            --split-per-abi \
-            --verbose
+            --build-number=${{ env.BUILD_NUMBER }} \
+            --build-version=${{ env.BUILD_VERSION }} \
+            --android-signing-key-store=android/app/alqarib.jks \
+            --android-signing-key-store-password=${{ secrets.KEY_STORE_PASSWORD }} \
+            --android-signing-key-alias=${{ secrets.KEY_ALIAS }} \
+            --android-signing-key-password=${{ secrets.KEY_PASSWORD }}
 
-      - name: Upload APK (arm64-v8a)
-        uses: actions/upload-artifact@v4
-        with:
-          name: apk-arm64-v8a
-          path: build/apk/*arm64*.apk
-          if-no-files-found: warn
-
-      - name: Upload APK (armeabi-v7a)
-        uses: actions/upload-artifact@v4
-        with:
-          name: apk-armeabi-v7a
-          path: build/apk/*armeabi*.apk
-          if-no-files-found: warn
-
-      - name: Upload APK (x86_64)
-        uses: actions/upload-artifact@v4
-        with:
-          name: apk-x86_64
-          path: build/apk/*x86_64*.apk
-          if-no-files-found: warn
-
-      - name: Upload all APKs
-        uses: actions/upload-artifact@v4
-        with:
-          name: apk-all
-          path: build/apk/
-          if-no-files-found: warn
-
-
-  build-aab:
-    name: Build AAB (Google Play)
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup Python ${{ env.PYTHON_VERSION }}
-        uses: actions/setup-python@v5
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-
-      - name: Install Python dependencies
+      # ─────────────────────────────────────────
+      # 📦 Build AAB — مع التوقيع الكامل
+      # ─────────────────────────────────────────
+      - name: Build AAB (Release + Signed)
         run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-
-      - name: Setup Flutter ${{ env.FLUTTER_VERSION }}
-        uses: subosito/flutter-action@v2
-        with:
-          flutter-version: ${{ env.FLUTTER_VERSION }}
-
-      - name: Setup Java JDK 21
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '21'
-
-      - name: Accept Android licenses
-        run: |
-          yes | flutter doctor --android-licenses || true
-
-      - name: Decode Keystore
-        run: |
-          mkdir -p build/flutter/android/app
-          echo "${{ secrets.KEYSTORE_BASE64 }}" | tr -d '\r\n ' | base64 --decode > build/flutter/android/app/alqarib.jks
-
-      - name: Flutter doctor
-        run: flutter doctor
-
-      - name: Build AAB
-        run: |
-          flutter config --no-analytics
           flet build aab \
-            --build-number=$BUILD_NUMBER \
-            --build-version=$BUILD_VERSION \
-            --verbose
+            --build-number=${{ env.BUILD_NUMBER }} \
+            --build-version=${{ env.BUILD_VERSION }} \
+            --android-signing-key-store=android/app/alqarib.jks \
+            --android-signing-key-store-password=${{ secrets.KEY_STORE_PASSWORD }} \
+            --android-signing-key-alias=${{ secrets.KEY_ALIAS }} \
+            --android-signing-key-password=${{ secrets.KEY_PASSWORD }}
 
-      - name: Upload AAB artifact
+      # ─────────────────────────────────────────
+      # ✅ التحقق من وجود الملفات
+      # ─────────────────────────────────────────
+      - name: List build outputs
+        run: |
+          echo "=== APK files ==="
+          find . -name "*.apk" 2>/dev/null || echo "No APK found"
+          echo "=== AAB files ==="
+          find . -name "*.aab" 2>/dev/null || echo "No AAB found"
+
+      # ─────────────────────────────────────────
+      # 📤 رفع APK
+      # ─────────────────────────────────────────
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: aab-release
-          path: build/aab/
+          name: app-release-apk
+          path: |
+            build/apk/*.apk
+            **/*.apk
           if-no-files-found: warn
+
+      # ─────────────────────────────────────────
+      # 📤 رفع AAB
+      # ─────────────────────────────────────────
+      - name: Upload AAB
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-release-aab
+          path: |
+            build/aab/*.aab
+            **/*.aab
+          if-no-files-found: warn
+
+      # ─────────────────────────────────────────
+      # 🗑️ حذف الـ Keystore من الـ runner بعد البناء
+      # ─────────────────────────────────────────
+      - name: Cleanup Keystore
+        if: always()
+        run: rm -f android/app/alqarib.jks
