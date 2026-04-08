@@ -11,7 +11,7 @@ org = "com.alqarib"
 
 # توقيع Android (الصحيح)
 [tool.flet.android.signing]
-key_store = "build/flutter/android/app/alqarib.jks"
+key_store = "alqarib.jks"          # مسار بسيط نسبي
 key_alias = "alqarib"
 
 # بيانات Google Ads
