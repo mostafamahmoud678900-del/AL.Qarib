@@ -9,12 +9,12 @@ dependencies = [
 [tool.flet]
 org = "com.alqarib"
 
-[tool.flet.android]
-signing_key_store = "build/flutter/android/app/alqarib.jks"
-signing_key_store_password = "12345678910"
-signing_key_alias = "alqarib"
-signing_key_password = "12345678910"
+# توقيع Android (الصحيح)
+[tool.flet.android.signing]
+key_store = "build/flutter/android/app/alqarib.jks"
+key_alias = "alqarib"
 
+# بيانات Google Ads
 [tool.flet.android.meta_data]
 "com.google.android.gms.ads.APPLICATION_ID" = "ca-app-pub-9178517854331057~2091373767"
 
