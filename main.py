@@ -19,7 +19,6 @@ import pickle
 TASBIH_FILE = "tasbih_data.json"
 
 
-
 class AdsManager:
     def __init__(self, page: ft.Page):
         self.page = page
@@ -68,6 +67,8 @@ class AdsManager:
             await self._interstitial.show()
         except Exception as ex:
             print(f"⚠️ error: {ex}")
+            # لو فشل الإعلان، حمّل واحد جديد فوراً حتى لا يتوقف
+            self._load_new_ad()
 
 
 
@@ -577,10 +578,41 @@ CUSTOM_ICONS = {
 HABITS_FILE = "daily_habits.json"
 
 # تهيئة ملف العادات إذا لم يكن موجودًا
+def _migrate_custom_habits_to_permanent():
+    """نقل العادات المخصصة من الأيام السابقة إلى القائمة الدائمة (تشغيل مرة واحدة)"""
+    try:
+        if not os.path.exists(HABITS_FILE):
+            return
+        with open(HABITS_FILE, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+
+        # لو custom_habits موجودة مسبقاً، مفيش حاجة
+        if "custom_habits" in data:
+            return
+
+        # استخرج كل العادات المخصصة من الأيام السابقة
+        found = {}
+        for day_habits in data.get("daily_habits", {}).values():
+            for h in day_habits:
+                if h.get("custom") and h["text"] not in found:
+                    permanent = {k: v for k, v in h.items() if k != "completed"}
+                    found[h["text"]] = permanent
+
+        data["custom_habits"] = list(found.values())
+        with open(HABITS_FILE, 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+        print(f"✅ تم نقل {len(found)} عادة مخصصة إلى القائمة الدائمة")
+    except Exception as e:
+        print(f"خطأ في migration: {e}")
+
+
 def init_habits_file():
     """تهيئة ملف العادات مع النظام الجديد (كل يوم له عاداته الخاصة)"""
     today_str = datetime.now().strftime("%Y-%m-%d")
-    
+
+    # نقل العادات المخصصة القديمة إلى القائمة الدائمة (مرة واحدة فقط)
+    _migrate_custom_habits_to_permanent()
+
     if not os.path.exists(HABITS_FILE):
         # إنشاء العادات الافتراضية لليوم الحالي فقط
         default_habits = [
@@ -1390,33 +1422,45 @@ class DailyGoalsPage:
         return months.get(month, f"شهر {month}")
     
     def load_habits_for_today(self):
-        """تحميل العادات ليوم محدد (اليوم الحالي)"""
+        """تحميل العادات لليوم الحالي — مع دمج العادات المخصصة الدائمة"""
         today_str = datetime.now().strftime("%Y-%m-%d")
-        
+
         if os.path.exists(HABITS_FILE):
             with open(HABITS_FILE, 'r', encoding='utf-8') as f:
                 data = json.load(f)
-            
-            # البحث عن عادات اليوم الحالي
+
+            # لو اليوم موجود مسبقاً، رجّع عاداته كما هي
             if "daily_habits" in data and today_str in data["daily_habits"]:
                 return data["daily_habits"][today_str]
-            
-            # إذا لم تكن هناك عادات لليوم الحالي، إنشاء عادات جديدة
+
+            # يوم جديد: ابدأ بالعادات الافتراضية
             default_habits = self.get_default_habits()
-            
-            # حفظ العادات الجديدة ليوم اليوم
+
+            # أضف العادات المخصصة الدائمة (completed=False دائماً في اليوم الجديد)
+            permanent_custom = data.get("custom_habits", [])
+            existing_ids = {h["id"] for h in default_habits}
+            for ph in permanent_custom:
+                new_id = ph["id"]
+                # تجنب تكرار الـ ID
+                while new_id in existing_ids:
+                    new_id += 1000
+                todays_habit = dict(ph)
+                todays_habit["id"] = new_id
+                todays_habit["completed"] = False
+                default_habits.append(todays_habit)
+                existing_ids.add(new_id)
+
+            # حفظ في ملف اليوم
             if "daily_habits" not in data:
                 data["daily_habits"] = {}
-            
             data["daily_habits"][today_str] = default_habits
-            
-            # حفظ التغييرات
+
             with open(HABITS_FILE, 'w', encoding='utf-8') as f:
                 json.dump(data, f, ensure_ascii=False, indent=2)
-            
+
             return default_habits
-        
-        # إذا لم يكن الملف موجوداً، إنشاؤه
+
+        # الملف غير موجود، إنشاؤه
         return self.init_habits_file_for_today()
     
     def get_default_habits(self):
@@ -1478,13 +1522,13 @@ class DailyGoalsPage:
             json.dump(data, f, ensure_ascii=False, indent=2)
     
     def add_new_custom_habit(self, text, category="مخصص"):
-        """إضافة عادة مخصصة جديدة لليوم الحالي"""
+        """إضافة عادة مخصصة جديدة — تُحفظ بشكل دائم وتظهر كل يوم"""
         if not text or not text.strip():
             return False
-        
-        # البحث عن أعلى ID في عادات اليوم الحالي
-        max_id = max([habit["id"] for habit in self.habits], default=0)
-        
+
+        # البحث عن أعلى ID عالمياً لتجنب التكرار
+        max_id = max([habit["id"] for habit in self.habits], default=100)
+
         new_habit = {
             "id": max_id + 1,
             "text": text.strip(),
@@ -1492,17 +1536,82 @@ class DailyGoalsPage:
             "custom": True,
             "category": category
         }
-        
+
+        # ① أضفها لعادات اليوم الحالي
         self.habits.append(new_habit)
         self.save_habits_for_today(self.habits)
+
+        # ② احفظها في قائمة العادات المخصصة الدائمة
+        self._save_permanent_custom_habit(new_habit)
         return True
+
+    def _save_permanent_custom_habit(self, habit):
+        """حفظ العادة المخصصة في قائمة دائمة تُدمج مع كل يوم جديد"""
+        try:
+            if os.path.exists(HABITS_FILE):
+                with open(HABITS_FILE, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+            else:
+                data = {"daily_habits": {}, "history": []}
+
+            if "custom_habits" not in data:
+                data["custom_habits"] = []
+
+            # تجنب التكرار بناءً على النص
+            existing_texts = [h["text"] for h in data["custom_habits"]]
+            if habit["text"] not in existing_texts:
+                # نحفظ بدون completed (دائماً تبدأ False كل يوم)
+                permanent = {k: v for k, v in habit.items() if k != "completed"}
+                data["custom_habits"].append(permanent)
+
+            with open(HABITS_FILE, 'w', encoding='utf-8') as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            print(f"خطأ في حفظ العادة الدائمة: {e}")
+
+    def _get_permanent_custom_habits(self):
+        """استرجاع قائمة العادات المخصصة الدائمة"""
+        try:
+            if os.path.exists(HABITS_FILE):
+                with open(HABITS_FILE, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                return data.get("custom_habits", [])
+        except Exception:
+            pass
+        return []
     
     def remove_custom_habit(self, habit_id):
-        """حذف عادة مخصصة من عادات اليوم الحالي"""
-        # تصفية العادات المخصصة فقط
-        self.habits = [habit for habit in self.habits if not (habit["id"] == habit_id and habit.get("custom"))]
+        """حذف عادة مخصصة من اليوم الحالي ومن القائمة الدائمة"""
+        # نحفظ نص العادة قبل حذفها
+        habit_text = next(
+            (h["text"] for h in self.habits if h["id"] == habit_id and h.get("custom")),
+            None
+        )
+
+        # حذف من عادات اليوم
+        self.habits = [h for h in self.habits if not (h["id"] == habit_id and h.get("custom"))]
         self.save_habits_for_today(self.habits)
+
+        # حذف من القائمة الدائمة أيضاً
+        if habit_text:
+            self._remove_permanent_custom_habit(habit_text)
         return True
+
+    def _remove_permanent_custom_habit(self, habit_text):
+        """حذف العادة من القائمة الدائمة بحيث لا تعود في اليوم القادم"""
+        try:
+            if not os.path.exists(HABITS_FILE):
+                return
+            with open(HABITS_FILE, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            if "custom_habits" in data:
+                data["custom_habits"] = [
+                    h for h in data["custom_habits"] if h["text"] != habit_text
+                ]
+            with open(HABITS_FILE, 'w', encoding='utf-8') as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            print(f"خطأ في حذف العادة الدائمة: {e}")
     
     def toggle_habit_completion(self, habit_id):
         """تبديل حالة إنجاز العادة لليوم الحالي"""
@@ -3148,14 +3257,14 @@ class HomePage:
                     print(f"خطأ في تحديث العداد: {ex}")
                 await asyncio.sleep(1)
 
-        page.run_task(update_countdown)
-
         # ── إيقاف العداد تلقائياً عند الانتقال من الصفحة الرئيسية ──
-        # نحفظ مرجع دالة الإيقاف في page لتستدعيها go() عند التنقل
         def _stop_home_timer():
             nonlocal timer_running
             timer_running = False
         page._stop_home_timer = _stop_home_timer
+
+        # نحفظ دالة تشغيل العداد لتُستدعى من الـ main thread بعد بناء الـ view
+        page._start_home_timer = lambda: page.run_task(update_countdown)
 
         # الصلوات الخمس بصيغة 12 ساعة
         five_prayers = [
@@ -7530,45 +7639,63 @@ class TimedSunanPage:
             page.views.append(view)
             safe_update(page)
 
-        # إنشاء شبكة الأزرار
-        sunan_grid = GridView(
+        # إنشاء شبكة الأزرار — بنفس نمط الصفحة الرئيسية
+        BUTTON_WIDTH = 100
+        BUTTON_HEIGHT = 100
+        ICON_SIZE = 50
+
+        buttons_grid = GridView(
+            expand=False,
             runs_count=3,
-            max_extent=110,
-            child_aspect_ratio=1,
-            spacing=10,
-            run_spacing=5,
+            max_extent=BUTTON_WIDTH + 20,
+            run_spacing=10,
+            child_aspect_ratio=1.0,
+            padding=ft.Padding.symmetric(horizontal=12),
             controls=[
                 Container(
-                    width=110,
-                    height=110,
-                    border_radius=15,
-                    bgcolor=Colors.with_opacity(0.8, Colors.WHITE),
-                    border=ft.Border.all(2, Colors.BLUE_300),
+                    width=BUTTON_WIDTH,
+                    height=BUTTON_HEIGHT,
+                    border_radius=18,
+                    bgcolor="#FFFFFF",
+                    border=ft.Border.all(1, "#EAEDF5"),
                     alignment=ft.Alignment(0, 0),
+                    padding=ft.Padding.all(8),
+                    shadow=BoxShadow(
+                        spread_radius=0,
+                        blur_radius=10,
+                        color=Colors.with_opacity(0.06, Colors.BLACK),
+                        offset=Offset(0, 3),
+                    ),
+                    ink=True,
+                    on_click=lambda e, data=btn["data"], title=btn["text"]: handle_sunan_click(e, data, title),
                     content=Column(
                         horizontal_alignment=CrossAxisAlignment.CENTER,
+                        alignment=MainAxisAlignment.CENTER,
+                        spacing=6,
                         controls=[
-                            Image(
-                                src=btn["icon"],
-                                width=40,
-                                height=70,
-                                fit=ft.BoxFit.CONTAIN,
+                            Container(
+                                width=ICON_SIZE, height=ICON_SIZE,
+                                alignment=ft.Alignment(0, 0),
+                                content=Image(
+                                    src=btn["icon"],
+                                    width=ICON_SIZE, height=ICON_SIZE,
+                                    fit=ft.BoxFit.CONTAIN,
+                                ),
                             ),
                             Text(
                                 btn["text"],
-                                size=13,
+                                size=15,
+                                color="#1A1A2E",
                                 weight=FontWeight.BOLD,
-                                color=Colors.BLACK,
-                                text_align=TextAlign.CENTER
-                            )
+                                text_align=TextAlign.CENTER,
+                                max_lines=2,
+                                overflow=TextOverflow.ELLIPSIS,
+                                font_family=BUTTON_FONT,
+                            ),
                         ],
-                        spacing=-10
                     ),
-                    on_click=lambda e, data=btn["data"], title=btn["text"]: handle_sunan_click(e, data, title),
-                    ink=True
                 ) for btn in sunan_buttons
             ],
-            expand=True,
         )
 
         # إنشاء واجهة الصفحة الرئيسية للسنن
@@ -7582,32 +7709,52 @@ class TimedSunanPage:
                     leading=IconButton(
                         icon=Icons.ARROW_BACK_IOS if page.rtl else Icons.ARROW_FORWARD,
                         icon_color=Colors.WHITE,
-                            on_click=lambda e: handle_back(page),
-                        ),
-                    
+                        on_click=lambda e: handle_back(page),
+                    ),
                 ),
                 Container(
-                    content=Column(
-                        [
-                            Text("السنن الموقوتة هي التي تُؤدى في أوقات محددة", 
-                                 size=18, 
-                                 color="#4a6baf",
-                                 weight=FontWeight.BOLD,
-                                 font_family=BUTTON_FONT,
-                                 text_align=TextAlign.CENTER),
-                            sunan_grid
-                        ],
-                        spacing=20,
-                        expand=True,
-                        horizontal_alignment=CrossAxisAlignment.CENTER,
-                    ),
-                    padding=20,
                     expand=True,
-                    bgcolor="#FFFFFF",
-                    alignment=ft.Alignment(0, 0),
+                    bgcolor="#F4F6FB",
+                    content=Column(
+                        expand=True,
+                        spacing=0,
+                        controls=[
+                            Container(
+                                padding=ft.Padding.only(top=18, bottom=6, left=16, right=16),
+                                content=Row(
+                                    vertical_alignment=CrossAxisAlignment.CENTER,
+                                    controls=[
+                                        Container(
+                                            width=4, height=24,
+                                            border_radius=4,
+                                            bgcolor="#4C3FCB",
+                                        ),
+                                        Text(
+                                            "السنن الموقوتة هي التي تُؤدى في أوقات محددة",
+                                            size=17,
+                                            weight=FontWeight.BOLD,
+                                            color="#1A1A2E",
+                                            font_family=BUTTON_FONT,
+                                            expand=True,
+                                        ),
+                                    ],
+                                ),
+                            ),
+                            Container(
+                                expand=True,
+                                content=ListView(
+                                    controls=[
+                                        Container(content=buttons_grid, padding=ft.Padding.only(bottom=80)),
+                                    ],
+                                    spacing=0,
+                                    expand=True,
+                                ),
+                            ),
+                        ],
+                    ),
                 ),
             ],
-            bgcolor="#FFFFFF",
+            bgcolor="#F4F6FB",
             padding=0,
             horizontal_alignment=CrossAxisAlignment.CENTER,
         )
@@ -7699,47 +7846,65 @@ class UntimedSunanPage:
             page.views.append(view)
             safe_update(page)
 
-        # إنشاء شبكة الأزرار
-        sunan_grid = GridView(
+        # إنشاء شبكة الأزرار — بنفس نمط الصفحة الرئيسية
+        BUTTON_WIDTH = 100
+        BUTTON_HEIGHT = 100
+        ICON_SIZE = 50
+
+        buttons_grid = GridView(
+            expand=False,
             runs_count=3,
-            max_extent=110,
-            child_aspect_ratio=1,
-            spacing=10,
-            run_spacing=5,
+            max_extent=BUTTON_WIDTH + 20,
+            run_spacing=10,
+            child_aspect_ratio=1.0,
+            padding=ft.Padding.symmetric(horizontal=12),
             controls=[
                 Container(
-                    width=110,
-                    height=110,
-                    border_radius=15,
-                    bgcolor=Colors.with_opacity(0.2, Colors.WHITE),
-                    border=ft.Border.all(2, Colors.BLUE_300),
+                    width=BUTTON_WIDTH,
+                    height=BUTTON_HEIGHT,
+                    border_radius=18,
+                    bgcolor="#FFFFFF",
+                    border=ft.Border.all(1, "#EAEDF5"),
                     alignment=ft.Alignment(0, 0),
+                    padding=ft.Padding.all(8),
+                    shadow=BoxShadow(
+                        spread_radius=0,
+                        blur_radius=10,
+                        color=Colors.with_opacity(0.06, Colors.BLACK),
+                        offset=Offset(0, 3),
+                    ),
+                    ink=True,
+                    on_click=lambda e, data=btn["data"], title=btn["text"]: handle_sunan_click(e, data, title),
                     content=Column(
                         horizontal_alignment=CrossAxisAlignment.CENTER,
+                        alignment=MainAxisAlignment.CENTER,
+                        spacing=6,
                         controls=[
-                            Image(
-                                src=btn["icon"],
-                                width=40,
-                                height=70,
-                                fit=ft.BoxFit.CONTAIN,
+                            Container(
+                                width=ICON_SIZE, height=ICON_SIZE,
+                                alignment=ft.Alignment(0, 0),
+                                content=Image(
+                                    src=btn["icon"],
+                                    width=ICON_SIZE, height=ICON_SIZE,
+                                    fit=ft.BoxFit.CONTAIN,
+                                ),
                             ),
                             Text(
                                 btn["text"],
-                                size=12,
+                                size=15,
+                                color="#1A1A2E",
                                 weight=FontWeight.BOLD,
-                                color=Colors.BLACK,
-                                text_align=TextAlign.CENTER
-                            )
+                                text_align=TextAlign.CENTER,
+                                max_lines=2,
+                                overflow=TextOverflow.ELLIPSIS,
+                                font_family=BUTTON_FONT,
+                            ),
                         ],
-                        spacing=-10
                     ),
-                    on_click=lambda e, data=btn["data"], title=btn["text"]: handle_sunan_click(e, data, title),
-                    ink=True
                 ) for btn in sunan_buttons
             ],
-            expand=True,
         )
-        
+
         # إنشاء واجهة الصفحة الرئيسية للسنن
         return View(
             route="/untimed_sunan",
@@ -7751,32 +7916,52 @@ class UntimedSunanPage:
                     leading=IconButton(
                         icon=Icons.ARROW_BACK_IOS if page.rtl else Icons.ARROW_FORWARD,
                         icon_color=Colors.WHITE,
-                            on_click=lambda e: handle_back(page),
-                        ),
-                    
+                        on_click=lambda e: handle_back(page),
+                    ),
                 ),
                 Container(
-                    content=Column(
-                        [
-                            Text("السنن الغير موقوتة هي النوافل التي لا يرتبط وقتها بوقت محدد", 
-                                 size=18, 
-                                 color="#4a6baf",
-                                 weight=FontWeight.BOLD,
-                                 font_family=BUTTON_FONT,
-                                 text_align=TextAlign.CENTER),
-                            sunan_grid
-                        ],
-                        spacing=20,
-                        expand=True,
-                        horizontal_alignment=CrossAxisAlignment.CENTER,
-                    ),
-                    padding=20,
                     expand=True,
-                    bgcolor="#FFFFFF",
-                    alignment=ft.Alignment(0, 0),
+                    bgcolor="#F4F6FB",
+                    content=Column(
+                        expand=True,
+                        spacing=0,
+                        controls=[
+                            Container(
+                                padding=ft.Padding.only(top=18, bottom=6, left=16, right=16),
+                                content=Row(
+                                    vertical_alignment=CrossAxisAlignment.CENTER,
+                                    controls=[
+                                        Container(
+                                            width=4, height=24,
+                                            border_radius=4,
+                                            bgcolor="#4C3FCB",
+                                        ),
+                                        Text(
+                                            "السنن الغير موقوتة هي النوافل التي لا يرتبط وقتها بوقت محدد",
+                                            size=17,
+                                            weight=FontWeight.BOLD,
+                                            color="#1A1A2E",
+                                            font_family=BUTTON_FONT,
+                                            expand=True,
+                                        ),
+                                    ],
+                                ),
+                            ),
+                            Container(
+                                expand=True,
+                                content=ListView(
+                                    controls=[
+                                        Container(content=buttons_grid, padding=ft.Padding.only(bottom=80)),
+                                    ],
+                                    spacing=0,
+                                    expand=True,
+                                ),
+                            ),
+                        ],
+                    ),
                 ),
             ],
-            bgcolor="#FFFFFF",
+            bgcolor="#F4F6FB",
             padding=0,
             horizontal_alignment=CrossAxisAlignment.CENTER,
         )
@@ -10492,22 +10677,16 @@ class SearchPage:
 
 # تعريف قائمة لتتبع سجل التنقل
 async def main(page: Page):
-    ads_manager = AdsManager(page)
-    page._ads_manager = ads_manager  # تخزينه في الصفحة للوصول منها
-    # إخفاء أخطاء الاتصال عند الإغلاق
-    if sys.platform == "win32":
-        try:
-            loop = asyncio.get_event_loop()
-            loop.set_exception_handler(
-                lambda l, c: None if isinstance(c.get("exception"), (ConnectionResetError, OSError)) 
-                else l.default_exception_handler(c)
-            )
-        except Exception:
-            pass
-
-    # إعدادات الصفحة الأساسية
+    # ══════════════════════════════════════════════
+    # ① إعدادات الصفحة الأساسية أولاً (بدون أي عمل ثقيل)
+    # ══════════════════════════════════════════════
     page.title = APP_TITLE
-    # ── تعيين حجم النافذة فقط على الكمبيوتر (ليس الهاتف) ──────────
+    page.horizontal_alignment = "center"
+    page.vertical_alignment = "center"
+    page.theme_mode = ThemeMode.LIGHT
+    page.padding = ft.Padding.only(top=0)
+    page.rtl = True
+
     _is_desktop = sys.platform in ("win32", "darwin", "linux") and not (
         hasattr(page, "web") and page.web
     )
@@ -10520,19 +10699,8 @@ async def main(page: Page):
             page.window.resizable = False
         except Exception:
             pass
-    page.horizontal_alignment = "center"
-    page.vertical_alignment = "center"
-    page.theme_mode = ThemeMode.LIGHT
-    page.padding = ft.Padding.only(top=0)
-    page.rtl = True
-        # تهيئة ملف العادات
-    init_habits_file()
 
-    # بدء التطبيق بالصفحة الرئيسية — سيتم البناء الحقيقي لاحقاً عبر navigate("/")
-    page.views.clear()
-
-    
-    # ── تعطيل انيميشن التنقل تماماً ──────────────────────────────
+    # تعطيل انيميشن التنقل تماماً
     page.theme = ft.Theme(
         page_transitions=ft.PageTransitionsTheme(
             android=ft.PageTransitionTheme.NONE,
@@ -10543,16 +10711,88 @@ async def main(page: Page):
         )
     )
 
-    _t0 = datetime.now()
-    _t1 = datetime.now()
-    print(f"زمن التهيئة: {(_t1 - _t0).total_seconds():.2f} ثانية")
-    
     # إضافة الخطوط
     page.fonts = {
         FONT_NAME: FONT_FILE,
         BUTTON_FONT: FONT_FILE,
         FONT_QURAN: FONT_QURAN
     }
+
+    # ══════════════════════════════════════════════
+    # ② شاشة Splash فورية — تظهر في أقل من نصف ثانية
+    # ══════════════════════════════════════════════
+    page.views.clear()
+    splash_view = ft.View(
+        route="/__splash__",
+        padding=0,
+        spacing=0,
+        bgcolor="#1a1145",
+        controls=[
+            ft.Container(
+                expand=True,
+                bgcolor="#1a1145",
+                alignment=ft.Alignment(0, 0),
+                content=ft.Column(
+                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                    alignment=ft.MainAxisAlignment.CENTER,
+                    spacing=18,
+                    controls=[
+                        ft.Image(
+                            src="assets/icons/icon.webp",
+                            width=100,
+                            height=100,
+                            fit=ft.BoxFit.CONTAIN,
+                        ),
+                        ft.Text(
+                            "القريب",
+                            size=32,
+                            weight=ft.FontWeight.BOLD,
+                            color=ft.Colors.WHITE,
+                            text_align=ft.TextAlign.CENTER,
+                        ),
+                        ft.Text(
+                            "أذكار المسلم",
+                            size=16,
+                            color=ft.Colors.with_opacity(0.7, ft.Colors.WHITE),
+                            text_align=ft.TextAlign.CENTER,
+                        ),
+                        ft.ProgressRing(
+                            width=28,
+                            height=28,
+                            stroke_width=3,
+                            color="#D4A843",
+                        ),
+                    ],
+                ),
+            )
+        ],
+    )
+    page.views.append(splash_view)
+    safe_update(page)
+
+    # ══════════════════════════════════════════════
+    # ③ الأعمال الثقيلة في الخلفية بعد ظهور الـ Splash
+    # ══════════════════════════════════════════════
+    if sys.platform == "win32":
+        try:
+            loop = asyncio.get_event_loop()
+            loop.set_exception_handler(
+                lambda l, c: None if isinstance(c.get("exception"), (ConnectionResetError, OSError))
+                else l.default_exception_handler(c)
+            )
+        except Exception:
+            pass
+
+    # تهيئة ملف العادات في thread منفصل لا يعطّل الـ UI
+    await asyncio.to_thread(init_habits_file)
+
+    # تهيئة مدير الإعلانات
+    ads_manager = AdsManager(page)
+    page._ads_manager = ads_manager
+
+    _t0 = datetime.now()
+    _t1 = datetime.now()
+    print(f"زمن التهيئة: {(_t1 - _t0).total_seconds():.2f} ثانية")
 
     # ══════════════════════════════════════════════
     # إعلان البانر الشفاف العالمي — يطفو في أسفل الشاشة
@@ -10562,9 +10802,9 @@ async def main(page: Page):
         global_banner = Container(
             content=fta.BannerAd(
                 unit_id=get_ad_id(page, "banner"),
-                on_error=lambda e: print("Global BannerAd error:", e.data),
+                on_load=lambda e: print("✅ Banner loaded"),
+                on_error=lambda e: print("❌ Global BannerAd error:", e.data),
             ),
-            width=page.width if page.width else 320,
             height=50,
             alignment=ft.Alignment(0, 0),
             bottom=0,
@@ -10795,6 +11035,10 @@ async def main(page: Page):
         # بناء الصفحة المطلوبة
         if route == "/":
             view = HomePage.create(page)
+            # تشغيل عداد الصلاة في الـ main thread
+            start_timer = getattr(page, "_start_home_timer", None)
+            if start_timer:
+                start_timer()
             
         elif route == "/search":
             view = SearchPage.create(page)
@@ -10979,10 +11223,19 @@ async def main(page: Page):
     page.on_route_change = route_change
     page.on_view_pop = view_pop
 
-    # بدء التطبيق بالصفحة الرئيسية
+    # بناء الصفحة الرئيسية في thread منفصل (لا يعطّل الـ UI)
+    home_view = await asyncio.to_thread(HomePage.create, page)
+
+    # استبدل splash بالصفحة الرئيسية بدون وميض
     page.views.clear()
-    await navigate("/")
+    page.views.append(home_view)
+    page.route = "/"
     safe_update(page)
+
+    # تشغيل العداد في الـ main thread بعد إظهار الصفحة
+    start_timer = getattr(page, "_start_home_timer", None)
+    if start_timer:
+        start_timer()
 
 # تشغيل التطبيق
 ft.run(main, assets_dir='assets')
