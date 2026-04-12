@@ -5,28 +5,14 @@ dependencies = [
     "flet",
     "flet-ads",
 ]
-
 [tool.flet]
 org = "com.alqarib"
-app_name = "القريب - أذكار المسلم"
-
 # توقيع Android (الصحيح)
 [tool.flet.android.signing]
-key_store = "alqarib.jks"
+key_store = "alqarib.jks"          # مسار بسيط نسبي
 key_alias = "alqarib"
-
-# اسم التطبيق على Android
-[tool.flet.android]
-app_name = "القريب - أذكار المسلم"
-
 # بيانات Google Ads
 [tool.flet.android.meta_data]
 "com.google.android.gms.ads.APPLICATION_ID" = "ca-app-pub-9178517854331057~2091373767"
-
-# إعدادات iOS
-[tool.flet.ios]
-app_name = "القريب - أذكار المسلم"
-
 [tool.flet.ios.info]
 GADApplicationIdentifier = "ca-app-pub-9178517854331057~2091373767"
-CFBundleDisplayName = "القريب - أذكار المسلم"
