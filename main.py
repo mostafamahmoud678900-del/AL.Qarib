@@ -20,33 +20,59 @@ TASBIH_FILE = "tasbih_data.json"
 
 
 class AdsManager:
+    # ملف لتتبع عدد الإعلانات البينية اليومية
+    _INTERSTITIAL_LOG = "ads_daily_log.json"
+
     def __init__(self, page: ft.Page):
         self.page = page
-        self.counter = 0
+        self.counter = 0          # عداد التنقلات
         self._ad_unit_id = None
         self._interstitial = None
+        self._banner_unit_id = None
+        self._banner_container = None  # مرجع الـ Container في overlay
 
         if is_mobile(page):
-            ad_ids = {
-                ft.PagePlatform.ANDROID: "ca-app-pub-9178517854331057/4196910270",
-                
-            }
-            self._ad_unit_id = ad_ids.get(page.platform, ad_ids[ft.PagePlatform.ANDROID])
+            android_id = ft.PagePlatform.ANDROID
+            self._ad_unit_id = "ca-app-pub-9178517854331057/4196910270"
+            self._banner_unit_id = "ca-app-pub-9178517854331057/6667889892"
             self._load_new_ad()
+
+    # ══════════════════════════════════
+    # الإعلان البيني
+    # ══════════════════════════════════
+    def _get_today_str(self):
+        return datetime.now().strftime("%Y-%m-%d")
+
+    def _load_daily_log(self):
+        """تحميل سجل إعلانات اليوم"""
+        try:
+            if os.path.exists(self._INTERSTITIAL_LOG):
+                with open(self._INTERSTITIAL_LOG, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                if data.get("date") == self._get_today_str():
+                    return data
+        except Exception:
+            pass
+        return {"date": self._get_today_str(), "shown": 0}
+
+    def _save_daily_log(self, shown_count):
+        """حفظ سجل إعلانات اليوم"""
+        try:
+            with open(self._INTERSTITIAL_LOG, "w", encoding="utf-8") as f:
+                json.dump({"date": self._get_today_str(), "shown": shown_count}, f)
+        except Exception:
+            pass
 
     def _load_new_ad(self):
         if not self._ad_unit_id:
             return
-
         self._interstitial = fta.InterstitialAd(
             unit_id=self._ad_unit_id,
-            on_load=lambda e: print("✅ loaded"),
-            on_error=lambda e: print(f"❌ error: {e.data}"),
-            on_open=lambda e: print("📱 opened"),
+            on_load=lambda e: print("✅ Interstitial loaded"),
+            on_error=lambda e: print(f"❌ Interstitial error: {e.data}"),
+            on_open=lambda e: print("📱 Interstitial opened"),
             on_close=self._on_ad_close,
         )
-
-        # ✅ في 0.83.x لازم page.services مش page.overlay
         self.page.services.append(self._interstitial)
         safe_update(self.page)
 
@@ -56,19 +82,60 @@ class AdsManager:
         self._load_new_ad()
 
     async def show_ad(self):
+        """يعرض الإعلان البيني — بحد أقصى 6 مرات في اليوم، كل 3 تنقلات"""
         if not self._ad_unit_id or not self._interstitial:
             return
 
+        # التحقق من حد اليوم (6 مرات)
+        log = self._load_daily_log()
+        if log["shown"] >= 6:
+            print(f"🚫 وصل حد الإعلانات اليومية (6 مرات)")
+            return
+
+        # كل 3 تنقلات مرة
         self.counter += 1
         if self.counter % 3 != 1:
             return
 
         try:
             await self._interstitial.show()
+            # سجّل الإعلان بعد عرضه
+            log["shown"] += 1
+            self._save_daily_log(log["shown"])
+            print(f"✅ Interstitial shown ({log['shown']}/6 today)")
         except Exception as ex:
-            print(f"⚠️ error: {ex}")
-            # لو فشل الإعلان، حمّل واحد جديد فوراً حتى لا يتوقف
+            print(f"⚠️ Interstitial error: {ex}")
             self._load_new_ad()
+
+    # ══════════════════════════════════
+    # البانر — تجديد دوري كل 30 ثانية
+    # ══════════════════════════════════
+    def setup_banner(self, container):
+        """ربط مرجع الـ Container بالـ AdsManager لتجديد البانر"""
+        self._banner_container = container
+        self.page.run_task(self._refresh_banner_loop)
+
+    async def _refresh_banner_loop(self):
+        """حلقة لا نهائية تجدد البانر كل 30 ثانية طالما التطبيق شغّال"""
+        while True:
+            await asyncio.sleep(30)
+            self._rebuild_banner()
+
+    def _rebuild_banner(self):
+        """إعادة بناء BannerAd بالكامل لضمان تحميل إعلان جديد"""
+        if not self._banner_container or not self._banner_unit_id:
+            return
+        try:
+            new_banner = fta.BannerAd(
+                unit_id=self._banner_unit_id,
+                on_load=lambda e: print("✅ Banner refreshed"),
+                on_error=lambda e: print(f"❌ Banner error: {e.data}"),
+            )
+            self._banner_container.content = new_banner
+            self._banner_container.update()
+            print("🔄 Banner rebuilt")
+        except Exception as ex:
+            print(f"⚠️ Banner rebuild error: {ex}")
 
 
 
@@ -10719,60 +10786,9 @@ async def main(page: Page):
     }
 
     # ══════════════════════════════════════════════
-    # ② شاشة Splash فورية — تظهر في أقل من نصف ثانية
+    # الأعمال الأساسية قبل بناء الصفحة الرئيسية
     # ══════════════════════════════════════════════
     page.views.clear()
-    splash_view = ft.View(
-        route="/__splash__",
-        padding=0,
-        spacing=0,
-        bgcolor="#1a1145",
-        controls=[
-            ft.Container(
-                expand=True,
-                bgcolor="#1a1145",
-                alignment=ft.Alignment(0, 0),
-                content=ft.Column(
-                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                    alignment=ft.MainAxisAlignment.CENTER,
-                    spacing=18,
-                    controls=[
-                        ft.Image(
-                            src="assets/icons/icon.webp",
-                            width=100,
-                            height=100,
-                            fit=ft.BoxFit.CONTAIN,
-                        ),
-                        ft.Text(
-                            "القريب",
-                            size=32,
-                            weight=ft.FontWeight.BOLD,
-                            color=ft.Colors.WHITE,
-                            text_align=ft.TextAlign.CENTER,
-                        ),
-                        ft.Text(
-                            "أذكار المسلم",
-                            size=16,
-                            color=ft.Colors.with_opacity(0.7, ft.Colors.WHITE),
-                            text_align=ft.TextAlign.CENTER,
-                        ),
-                        ft.ProgressRing(
-                            width=28,
-                            height=28,
-                            stroke_width=3,
-                            color="#D4A843",
-                        ),
-                    ],
-                ),
-            )
-        ],
-    )
-    page.views.append(splash_view)
-    safe_update(page)
-
-    # ══════════════════════════════════════════════
-    # ③ الأعمال الثقيلة في الخلفية بعد ظهور الـ Splash
-    # ══════════════════════════════════════════════
     if sys.platform == "win32":
         try:
             loop = asyncio.get_event_loop()
@@ -10814,6 +10830,8 @@ async def main(page: Page):
         )
         page.overlay.append(global_banner)
         page._global_banner = global_banner  # حفظ المرجع للتحكم فيه لاحقاً
+        # ربط البانر بـ AdsManager لتجديده تلقائياً كل 30 ثانية
+        ads_manager.setup_banner(global_banner)
         safe_update(page)
 
     # نتحقق هل الترحيب ظهر من قبل أم لا
