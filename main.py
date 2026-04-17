@@ -82,7 +82,7 @@ class AdsManager:
         self._load_new_ad()
 
     async def show_ad(self):
-        """يعرض الإعلان البيني — بحد أقصى 6 مرات في اليوم، كل 3 تنقلات"""
+        """يعرض الإعلان البيني — بحد أقصى 6 مرات في اليوم، كل 2 تنقلات"""
         if not self._ad_unit_id or not self._interstitial:
             return
 
@@ -92,9 +92,9 @@ class AdsManager:
             print(f"🚫 وصل حد الإعلانات اليومية (6 مرات)")
             return
 
-        # كل 3 تنقلات مرة
+        # كل 2 تنقلات مرة
         self.counter += 1
-        if self.counter % 3 != 1:
+        if self.counter % 2 != 0:
             return
 
         try:
@@ -10826,7 +10826,7 @@ async def main(page: Page):
             bottom=0,
             left=0,
             right=0,
-            visible=False,  # مخفي في الصفحة الرئيسية — يظهر عند الانتقال لصفحات أخرى
+            visible=True,  # يظهر دائماً في جميع الصفحات
         )
         page.overlay.append(global_banner)
         page._global_banner = global_banner  # حفظ المرجع للتحكم فيه لاحقاً
@@ -10834,8 +10834,8 @@ async def main(page: Page):
         ads_manager.setup_banner(global_banner)
         safe_update(page)
 
-    # نتحقق هل الترحيب ظهر من قبل أم لا
-    show_welcome = not os.path.exists("welcome_seen.txt")
+    # تم إلغاء شاشة الترحيب نهائياً
+    show_welcome = False
 
     async def close_welcome(e=None):
         welcome_view.opacity = 0
@@ -11199,15 +11199,6 @@ async def main(page: Page):
         # إضافة الصفحة إلى المكدس وتحديثها
         page.views.append(view)
 
-        # إخفاء/إظهار البانر العالمي
-        banner = getattr(page, "_global_banner", None)
-        if banner is not None:
-            banner.visible = route not in ("/", "/sadaqa_gariya", "/about") and not route.startswith("/quran/surah/")
-            try:
-                banner.update()
-            except Exception:
-                pass
-
         safe_update(page)
 
     # معالج تغيير المسار — run_task فقط لأن navigate أصبحت async
@@ -11219,14 +11210,6 @@ async def main(page: Page):
         if len(page.views) > 1:
             page.views.pop()
             page.route = page.views[-1].route
-
-            banner = getattr(page, "_global_banner", None)
-            if banner is not None:
-                banner.visible = page.route not in ("/", "/sadaqa_gariya", "/about") and not page.route.startswith("/quran/surah/")
-                try:
-                    banner.update()
-                except Exception:
-                    pass
 
             safe_update(page)
         else:
