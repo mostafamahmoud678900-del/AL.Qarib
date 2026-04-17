@@ -32,7 +32,6 @@ class AdsManager:
         self._banner_container = None  # مرجع الـ Container في overlay
 
         if is_mobile(page):
-            android_id = ft.PagePlatform.ANDROID
             self._ad_unit_id = "ca-app-pub-9178517854331057/4196910270"
             self._banner_unit_id = "ca-app-pub-9178517854331057/6667889892"
             self._load_new_ad()
@@ -66,6 +65,14 @@ class AdsManager:
     def _load_new_ad(self):
         if not self._ad_unit_id:
             return
+        # إزالة الإعلان القديم أولاً
+        if self._interstitial is not None:
+            try:
+                if self._interstitial in self.page.overlay:
+                    self.page.overlay.remove(self._interstitial)
+            except Exception:
+                pass
+
         self._interstitial = fta.InterstitialAd(
             unit_id=self._ad_unit_id,
             on_load=lambda e: print("✅ Interstitial loaded"),
@@ -73,16 +80,24 @@ class AdsManager:
             on_open=lambda e: print("📱 Interstitial opened"),
             on_close=self._on_ad_close,
         )
-        self.page.services.append(self._interstitial)
+        # InterstitialAd يعمل كـ service فقط — نضيفه بحجم صفري حتى لا يُرسم
+        self._interstitial.visible = False
+        self._interstitial.width = 0
+        self._interstitial.height = 0
+        self.page.overlay.append(self._interstitial)
         safe_update(self.page)
 
     def _on_ad_close(self, e):
-        if self._interstitial in self.page.services:
-            self.page.services.remove(self._interstitial)
+        try:
+            if self._interstitial in self.page.overlay:
+                self.page.overlay.remove(self._interstitial)
+        except Exception:
+            pass
+        self._interstitial = None
         self._load_new_ad()
 
     async def show_ad(self):
-        """يعرض الإعلان البيني — بحد أقصى 6 مرات في اليوم، كل 2 تنقلات"""
+        """يعرض الإعلان البيني — بحد أقصى 6 مرات في اليوم، كل 3 تنقلات"""
         if not self._ad_unit_id or not self._interstitial:
             return
 
@@ -92,9 +107,9 @@ class AdsManager:
             print(f"🚫 وصل حد الإعلانات اليومية (6 مرات)")
             return
 
-        # كل 2 تنقلات مرة
+        # كل 3 تنقلات مرة
         self.counter += 1
-        if self.counter % 2 != 0:
+        if self.counter % 3 != 1:
             return
 
         try:
@@ -131,7 +146,11 @@ class AdsManager:
                 on_load=lambda e: print("✅ Banner refreshed"),
                 on_error=lambda e: print(f"❌ Banner error: {e.data}"),
             )
-            self._banner_container.content = new_banner
+            # الـ _banner_container الآن هو Stack — نحدّث الـ Container الداخلي
+            if hasattr(self._banner_container, 'controls') and self._banner_container.controls:
+                self._banner_container.controls[0].content = new_banner
+            else:
+                self._banner_container.content = new_banner
             self._banner_container.update()
             print("🔄 Banner rebuilt")
         except Exception as ex:
@@ -10815,27 +10834,35 @@ async def main(page: Page):
     # بدون أي خلفية خلفه في جميع الصفحات
     # ══════════════════════════════════════════════
     if is_mobile(page):
-        global_banner = Container(
-            content=fta.BannerAd(
-                unit_id=get_ad_id(page, "banner"),
-                on_load=lambda e: print("✅ Banner loaded"),
-                on_error=lambda e: print("❌ Global BannerAd error:", e.data),
-            ),
-            height=50,
-            alignment=ft.Alignment(0, 0),
-            bottom=0,
-            left=0,
-            right=0,
-            visible=True,  # يظهر دائماً في جميع الصفحات
+        # البانر يحتاج Stack من النوع expand=True ليتمكن من التموضع بـ bottom=0
+        banner_ad = fta.BannerAd(
+            unit_id=get_ad_id(page, "banner"),
+            on_load=lambda e: print("✅ Banner loaded"),
+            on_error=lambda e: print("❌ Global BannerAd error:", e.data),
+        )
+        global_banner = ft.Stack(
+            controls=[
+                ft.Container(
+                    content=banner_ad,
+                    height=50,
+                    bottom=0,
+                    left=0,
+                    right=0,
+                    alignment=ft.Alignment(0, 0),
+                ),
+            ],
+            expand=True,
+            visible=False,  # مخفي في الصفحة الرئيسية
         )
         page.overlay.append(global_banner)
         page._global_banner = global_banner  # حفظ المرجع للتحكم فيه لاحقاً
+        page._banner_ad_ref = banner_ad      # مرجع للبانر للتجديد
         # ربط البانر بـ AdsManager لتجديده تلقائياً كل 30 ثانية
         ads_manager.setup_banner(global_banner)
         safe_update(page)
 
-    # تم إلغاء شاشة الترحيب نهائياً
-    show_welcome = False
+    # نتحقق هل الترحيب ظهر من قبل أم لا
+    show_welcome = not os.path.exists("welcome_seen.txt")
 
     async def close_welcome(e=None):
         welcome_view.opacity = 0
@@ -11199,6 +11226,15 @@ async def main(page: Page):
         # إضافة الصفحة إلى المكدس وتحديثها
         page.views.append(view)
 
+        # إخفاء/إظهار البانر العالمي
+        banner = getattr(page, "_global_banner", None)
+        if banner is not None:
+            banner.visible = route not in ("/", "/sadaqa_gariya", "/about") and not route.startswith("/quran/surah/")
+            try:
+                banner.update()
+            except Exception:
+                pass
+
         safe_update(page)
 
     # معالج تغيير المسار — run_task فقط لأن navigate أصبحت async
@@ -11210,6 +11246,14 @@ async def main(page: Page):
         if len(page.views) > 1:
             page.views.pop()
             page.route = page.views[-1].route
+
+            banner = getattr(page, "_global_banner", None)
+            if banner is not None:
+                banner.visible = page.route not in ("/", "/sadaqa_gariya", "/about") and not page.route.startswith("/quran/surah/")
+                try:
+                    banner.update()
+                except Exception:
+                    pass
 
             safe_update(page)
         else:
@@ -11224,8 +11268,8 @@ async def main(page: Page):
     page.on_route_change = route_change
     page.on_view_pop = view_pop
 
-    # بناء الصفحة الرئيسية في thread منفصل (لا يعطّل الـ UI)
-    home_view = await asyncio.to_thread(HomePage.create, page)
+    # بناء الصفحة الرئيسية مباشرة — asyncio.to_thread يسبب شاشة بيضاء على أندرويد في flet 0.84.0
+    home_view = HomePage.create(page)
 
     # استبدل splash بالصفحة الرئيسية بدون وميض
     page.views.clear()
