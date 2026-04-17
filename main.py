@@ -32,6 +32,7 @@ class AdsManager:
         self._banner_container = None  # مرجع الـ Container في overlay
 
         if is_mobile(page):
+            android_id = ft.PagePlatform.ANDROID
             self._ad_unit_id = "ca-app-pub-9178517854331057/4196910270"
             self._banner_unit_id = "ca-app-pub-9178517854331057/6667889892"
             self._load_new_ad()
@@ -72,14 +73,12 @@ class AdsManager:
             on_open=lambda e: print("📱 Interstitial opened"),
             on_close=self._on_ad_close,
         )
-        # flet 0.84.0: استخدم overlay بدلاً من services
-        if hasattr(self.page, 'overlay'):
-            self.page.overlay.append(self._interstitial)
+        self.page.services.append(self._interstitial)
         safe_update(self.page)
 
     def _on_ad_close(self, e):
-        if hasattr(self.page, 'overlay') and self._interstitial in self.page.overlay:
-            self.page.overlay.remove(self._interstitial)
+        if self._interstitial in self.page.services:
+            self.page.services.remove(self._interstitial)
         self._load_new_ad()
 
     async def show_ad(self):
@@ -11242,8 +11241,8 @@ async def main(page: Page):
     page.on_route_change = route_change
     page.on_view_pop = view_pop
 
-    # بناء الصفحة الرئيسية مباشرة — asyncio.to_thread يسبب شاشة بيضاء على أندرويد في flet 0.84.0
-    home_view = HomePage.create(page)
+    # بناء الصفحة الرئيسية في thread منفصل (لا يعطّل الـ UI)
+    home_view = await asyncio.to_thread(HomePage.create, page)
 
     # استبدل splash بالصفحة الرئيسية بدون وميض
     page.views.clear()
