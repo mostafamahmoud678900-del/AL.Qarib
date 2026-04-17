@@ -1,3 +1,3 @@
-flet
+flet==0.84.0
 flet-ads
 httpx
