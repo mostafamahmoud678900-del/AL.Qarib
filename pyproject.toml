@@ -2,7 +2,7 @@
 name = "alqarib"
 version = "1.0.0"
 dependencies = [
-    "flet",
+    "flet==0.84.0",
     "flet-ads",
 ]
 [tool.flet]
