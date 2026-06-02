@@ -21,9 +21,9 @@ TASBIH_FILE = "tasbih_data.json"
 
 class AdsManager:
     # ══════════════════════════════════════════════════════════
-    # متوافق مع flet-ads >= 0.82 حيث:
-    #   • InterstitialAd  → Service  (يُضاف لـ page.overlay مسبقاً، يُعرض بـ show())
-    #   • BannerAd        → LayoutControl (يُضاف مباشرة كـ control عادي)
+    # متوافق مع flet-ads 0.85.2
+    #   • InterstitialAd  → يُضاف لـ page.overlay ويُعرض بـ show()
+    #   • BannerAd        → LayoutControl يُضاف مباشرة كـ control عادي
     # ══════════════════════════════════════════════════════════
     _INTERSTITIAL_LOG = "ads_daily_log.json"
 
@@ -32,15 +32,14 @@ class AdsManager:
         self._ad_unit_id = None
         self._banner_unit_id = None
         self._banner_container = None
-        self._current_iad = None   # الإعلان البيني المحمّل وجاهز للعرض
+        self._current_iad = None   # الإعلان البيني الجاهز للعرض
         self._iad_ready = False    # هل الإعلان محمّل وجاهز؟
         self._loading = False      # منع التحميل المتوازي
 
         if is_mobile(page):
             self._ad_unit_id = "ca-app-pub-3940256099942544/1033173712"      # TODO: إرجاع → ca-app-pub-9178517854331057/4196910270
             self._banner_unit_id = "ca-app-pub-3940256099942544/6300978111"  # TODO: إرجاع → ca-app-pub-9178517854331057/6667889892
-            # نُجدوِل التحميل الأول بعد اكتمال بناء الصفحة — لا نستدعيه مباشرة من __init__
-            # حتى لا يحدث safe_update قبل أن تكون الصفحة جاهزة تماماً
+            # نُجدوِل التحميل الأول بعد اكتمال بناء الصفحة
             self.page.run_task(self._delayed_preload)
 
     # ══════════════════════════════════
@@ -70,21 +69,22 @@ class AdsManager:
     async def _delayed_preload(self):
         """ننتظر ثانية واحدة حتى تكتمل الصفحة الرئيسية ثم نحمّل الإعلان"""
         await asyncio.sleep(1)
-        self._preload_interstitial()
+        await self._preload_interstitial()
 
-    def _preload_interstitial(self):
+    async def _preload_interstitial(self):
         """
         ينشئ instance جديد من InterstitialAd ويضيفه لـ page.overlay.
-        ✅ لا نستدعي safe_update هنا — الإعلان Service وليس widget مرئي،
-           ويُسجَّل تلقائياً بمجرد إضافته للـ overlay عند أي update لاحق.
+        في flet-ads 0.85.2 يجب استدعاء load() صراحةً بعد الإضافة للـ overlay.
         """
         if not self._ad_unit_id or self._loading:
             return
+
         # إذا كان هناك إعلان قديم، نزيله أولاً
         if self._current_iad is not None:
             try:
                 if self._current_iad in self.page.overlay:
                     self.page.overlay.remove(self._current_iad)
+                    self.page.update()
             except Exception:
                 pass
             self._current_iad = None
@@ -112,12 +112,15 @@ class AdsManager:
             try:
                 if self._current_iad in self.page.overlay:
                     self.page.overlay.remove(self._current_iad)
+                    self.page.update()
             except Exception:
                 pass
             self._current_iad = None
-            # نُجدوِل تحميل الإعلان التالي بعد تأخير قصير
+            # نُجدوِل تحميل الإعلان التالي
             self.page.run_task(self._delayed_preload)
 
+        # ✅ flet-ads 0.85.2: ننشئ InterstitialAd ونضيفه للـ overlay أولاً
+        #    ثم نستدعي load() صراحةً لبدء التحميل من AdMob SDK
         iad = fta.InterstitialAd(
             unit_id=self._ad_unit_id,
             on_load=_on_load,
@@ -127,18 +130,29 @@ class AdsManager:
         )
         self._current_iad = iad
         self.page.overlay.append(iad)
-        # ✅ نستدعي update مرة واحدة فقط وبدون try/except صامت
-        #    حتى يتم تسجيل الـ Service مع AdMob SDK
+
         try:
             self.page.update()
         except Exception as ex:
             print(f"⚠️ overlay update error: {ex}")
+            self._loading = False
+            return
+
+        # ✅ استدعاء load() بعد إضافة الـ control للـ overlay وتحديث الصفحة
+        #    هذه هي الطريقة الصحيحة في flet-ads 0.85.2
+        try:
+            await asyncio.sleep(0.3)  # تأخير قصير لضمان تسجيل الـ control
+            iad.load()
+            print("📡 Interstitial load() called")
+        except Exception as ex:
+            print(f"⚠️ Interstitial load() error: {ex}")
+            self._loading = False
 
     def _schedule_reload(self):
         """يجدول إعادة تحميل الإعلان بعد 30 ثانية عند الفشل"""
         async def _reload_after_delay():
             await asyncio.sleep(30)
-            self._preload_interstitial()
+            await self._preload_interstitial()
         self.page.run_task(_reload_after_delay)
 
     async def show_ad(self):
@@ -157,29 +171,20 @@ class AdsManager:
             print("🚫 وصل حد الإعلانات اليومية (10 مرات)")
             return
 
+        # ✅ flet-ads 0.85.2: نستخدم show() المتزامنة مباشرة
+        #    الإعلان البيني يعرض نفسه كشاشة كاملة عبر AdMob SDK تلقائياً
         try:
             self._iad_ready = False  # نمنع عرضه مرتين متتاليتين
-            await self._current_iad.show_async()
+            self._current_iad.show()
             log["shown"] += 1
             self._save_daily_log(log["shown"])
             print(f"✅ Interstitial shown ({log['shown']}/10 today)")
-        except AttributeError:
-            # بعض إصدارات flet-ads تستخدم show() بدلاً من show_async()
-            try:
-                self._iad_ready = False
-                self._current_iad.show()
-                log["shown"] += 1
-                self._save_daily_log(log["shown"])
-                print(f"✅ Interstitial shown via show() ({log['shown']}/10 today)")
-            except Exception as ex:
-                print(f"⚠️ Interstitial show error (fallback): {ex}")
-                self._iad_ready = True  # نعيد الحالة عند الفشل
         except Exception as ex:
-            print(f"⚠️ Interstitial show error: {ex}")
+            print(f"⚠️ Interstitial show() error: {ex}")
             self._iad_ready = True  # نعيد الحالة عند الفشل
 
     # ══════════════════════════════════
-    # البانر — LayoutControl (flet-ads >= 0.82)
+    # البانر — LayoutControl (flet-ads 0.85.2)
     # ══════════════════════════════════
     def build_banner(self) -> fta.BannerAd:
         return fta.BannerAd(
