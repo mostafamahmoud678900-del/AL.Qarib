@@ -32,8 +32,8 @@ class AdsManager:
         self._banner_container = None  # مرجع الـ Container في overlay
 
         if is_mobile(page):
-            self._ad_unit_id = "ca-app-pub-9178517854331057/4196910270"
-            self._banner_unit_id = "ca-app-pub-9178517854331057/6667889892"
+            self._ad_unit_id = "ca-app-pub-3940256099942544/1033173712"       # TODO: إرجاع → ca-app-pub-9178517854331057/4196910270
+            self._banner_unit_id = "ca-app-pub-3940256099942544/6300978111"   # TODO: إرجاع → ca-app-pub-9178517854331057/6667889892
             self._load_new_ad()
 
     # ══════════════════════════════════
@@ -97,19 +97,14 @@ class AdsManager:
         self._load_new_ad()
 
     async def show_ad(self):
-        """يعرض الإعلان البيني — بحد أقصى 6 مرات في اليوم، كل 3 تنقلات"""
+        """يعرض الإعلان البيني — بحد أقصى 10 مرات في اليوم، كل تنقل"""
         if not self._ad_unit_id or not self._interstitial:
             return
 
-        # التحقق من حد اليوم (6 مرات)
+        # التحقق من حد اليوم (10 مرات)
         log = self._load_daily_log()
-        if log["shown"] >= 6:
-            print(f"🚫 وصل حد الإعلانات اليومية (6 مرات)")
-            return
-
-        # كل 3 تنقلات مرة
-        self.counter += 1
-        if self.counter % 3 != 1:
+        if log["shown"] >= 10:
+            print(f"🚫 وصل حد الإعلانات اليومية (10 مرات)")
             return
 
         try:
@@ -117,7 +112,7 @@ class AdsManager:
             # سجّل الإعلان بعد عرضه
             log["shown"] += 1
             self._save_daily_log(log["shown"])
-            print(f"✅ Interstitial shown ({log['shown']}/6 today)")
+            print(f"✅ Interstitial shown ({log['shown']}/10 today)")
         except Exception as ex:
             print(f"⚠️ Interstitial error: {ex}")
             self._load_new_ad()
@@ -165,7 +160,7 @@ class AdsManager:
 # ══════════════════════════════════════════════
 AD_IDS = {
     ft.PagePlatform.ANDROID: {
-        "banner": "ca-app-pub-9178517854331057/6667889892",
+        "banner": "ca-app-pub-3940256099942544/6300978111",   # TODO: إرجاع → ca-app-pub-9178517854331057/6667889892
         # "interstitial": "ca-app-pub-3940256099942544/1033173712",  # TODO: تفعيل عند توفر في 0.83.0+
     },
     
@@ -5670,7 +5665,6 @@ class PrayerTimesPage:
                 ),
                 Container(
                     content=loading_content,
-                
                     expand=True,
                     bgcolor="#f5f7fa",
                     alignment=ft.Alignment(0, 0)
@@ -5799,7 +5793,6 @@ class PrayerTimesPage:
     
         self.countdown_text.value = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
     
-    # تحديث التاريخ الهجري محلياً للتأكد من أنه محدث (أضف هذا السطر)
         hijri_date = self.get_accurate_hijri_date()
         
         # بطاقة الموقع والتواريخ
@@ -6056,9 +6049,6 @@ class PrayerTimesPage:
         safe_update(self.page)
         
         # بدء المؤقت
-        if self.timer:
-            pass
-        
         async def timer_loop():
             while self.is_page_active:
                 try:
@@ -6075,8 +6065,6 @@ class PrayerTimesPage:
                                 self.countdown_text.update()
                             except Exception:
                                 pass
-                        if self.is_page_active and not changed:
-                            pass  # لا تحديث غير ضروري
                 except Exception as ex:
                     if "destroyed" in str(ex).lower() or "session" in str(ex).lower():
                         self.is_page_active = False
@@ -6126,7 +6114,6 @@ class PrayerTimesPage:
 
     def get_prayer_times(self, view):
         try:
-            # تحديث التاريخ الهجري محلياً
             self.hijri_date = self.get_accurate_hijri_date()
             
             cached_data = self.load_cached_data()
@@ -6143,9 +6130,9 @@ class PrayerTimesPage:
                         "tune": "0,0,0,0,0,0,0,0,0"
                     }
                     
-                    with httpx.Client(timeout=10.0) as client:
+                    with httpx.Client(timeout=10.0, verify=False) as client:
                         response = client.get(
-                            f"http://api.aladhan.com/v1/timings/{date}", 
+                            f"https://api.aladhan.com/v1/timings/{date}",  # استخدام HTTPS
                             params=params
                         )
                         data = response.json()
@@ -6153,8 +6140,6 @@ class PrayerTimesPage:
                     if 'data' in data:
                         timings = data['data']['timings']
                         date_info = data['data']['date']['readable']
-                        
-
                         
                         cache_data = {
                             'location': location,
@@ -6173,7 +6158,6 @@ class PrayerTimesPage:
             
             # إذا كان هناك بيانات مخزنة، استخدامها
             if cached_data:
-
                 cached_data['hijri_date'] = self.hijri_date
                     
                 self.update_prayer_times_view(
@@ -6269,14 +6253,16 @@ class PrayerTimesPage:
         )
         safe_update(self.page)
         
-        # تشغيل في thread منفصل لمنع تجميد الواجهة
         threading.Thread(target=self.get_prayer_times, args=(view,), daemon=True).start()
 
     def is_online(self):
+        """التحقق من الاتصال بالإنترنت"""
         try:
-            socket.create_connection(("8.8.8.8", 53), timeout=3)
+            # استخدام HTTPS بدلاً من DNS
+            with httpx.Client(timeout=3.0, verify=False) as client:
+                client.get("https://www.google.com")
             return True
-        except OSError:
+        except Exception:
             return False
 
     def load_cached_data(self):
@@ -6307,65 +6293,136 @@ class PrayerTimesPage:
             print(f"خطأ في حفظ البيانات: {str(e)}")
 
     def get_precise_location_with_arabic(self):
-        """الحصول على الموقع مع اسم المدينة بالعربية"""
+        """الحصول على الموقع مع اسم المدينة بالعربية (محسّن للأندرويد)"""
+        # المحاولة الأولى: استخدام خدمة ip-api.com عبر HTTPS
         try:
-            # محاولة الحصول على الموقع من IP باستخدام httpx
-            try:
-                with httpx.Client(timeout=5.0) as client:
-                    response = client.get('https://ipinfo.io/json')
+            with httpx.Client(timeout=8.0, verify=False) as client:
+                response = client.get('https://ip-api.com/json/?fields=status,lat,lon,city,countryCode,country,regionName')
+                if response.status_code == 200:
+                    data = response.json()
+                    if data.get('status') == 'success' and data.get('lat'):
+                        city = data.get('city', '')
+                        region = data.get('regionName', '')
+                        country_code = data.get('countryCode', '')
+                        country = data.get('country', '')
+                        
+                        # ترجمة اسم الدولة إلى العربية
+                        country_ar = self.translate_country_to_arabic(country_code)
+                        
+                        # تكوين اسم الموقع بالعربية بشكل أفضل
+                        address_parts = []
+                        if city:
+                            address_parts.append(city)
+                        if region and region != city:
+                            address_parts.append(region)
+                        if country_ar:
+                            address_parts.append(country_ar)
+                        
+                        address_ar = "، ".join(address_parts) if address_parts else f"{country_ar}"
+                        
+                        print(f"✅ تم تحديد الموقع عبر ip-api: {address_ar}")
+                        return {
+                            'latitude': data['lat'],
+                            'longitude': data['lon'],
+                            'address': f"{city}, {country}",
+                            'address_ar': address_ar,
+                            'method': 'IP'
+                        }
+        except Exception as e:
+            print(f"خطأ في ip-api: {e}")
+
+        # المحاولة الثانية: استخدام ipinfo.io عبر HTTPS
+        try:
+            with httpx.Client(timeout=8.0, verify=False) as client:
+                response = client.get('https://ipinfo.io/json')
                 if response.status_code == 200:
                     data = response.json()
                     loc = data.get('loc', '').split(',')
                     if len(loc) == 2:
                         city = data.get('city', '')
+                        region = data.get('region', '')
                         country = data.get('country', '')
                         
-                        # تحويل اسم الدولة إلى عربي
                         country_ar = self.translate_country_to_arabic(country)
                         
+                        address_parts = []
+                        if city:
+                            address_parts.append(city)
+                        if region and region != city:
+                            address_parts.append(region)
+                        if country_ar:
+                            address_parts.append(country_ar)
+                        
+                        address_ar = "، ".join(address_parts) if address_parts else f"{country_ar}"
+                        
+                        print(f"✅ تم تحديد الموقع عبر ipinfo: {address_ar}")
                         return {
                             'latitude': float(loc[0]),
                             'longitude': float(loc[1]),
-                            'address': f"{city}، {country}",
-                            'address_ar': f"{city}، {country_ar}",
+                            'address': f"{city}, {country}",
+                            'address_ar': address_ar,
                             'method': 'IP'
                         }
-            except:
-                pass
-            
-            # بديل: خدمة ip-api
-            try:
-                with httpx.Client(timeout=5.0) as client:
-                    response = client.get('http://ip-api.com/json/?fields=lat,lon,city,country')
+        except Exception as e:
+            print(f"خطأ في ipinfo: {e}")
+
+        # المحاولة الثالثة: استخدام api.my-ip.io للحصول على البلد فقط
+        try:
+            with httpx.Client(timeout=8.0, verify=False) as client:
+                response = client.get('https://api.my-ip.io/ip.json')
                 if response.status_code == 200:
                     data = response.json()
-                    if data.get('lat'):
-                        country_ar = self.translate_country_to_arabic(data.get('country', ''))
+                    country = data.get('country', '')
+                    if country:
+                        country_ar = self.translate_country_to_arabic(country)
+                        print(f"✅ تم تحديد البلد عبر my-ip: {country_ar}")
+                        # إحداثيات تقريبية حسب البلد
+                        coords = self.get_coordinates_by_country(country)
                         return {
-                            'latitude': data['lat'],
-                            'longitude': data['lon'],
-                            'address': f"{data.get('city', '')}، {data.get('country', '')}",
-                            'address_ar': f"{data.get('city', '')}، {country_ar}",
-                            'method': 'IP'
+                            'latitude': coords['lat'],
+                            'longitude': coords['lon'],
+                            'address': country,
+                            'address_ar': country_ar,
+                            'method': 'IP (البلد فقط)'
                         }
-            except:
-                pass
-            return {
-                'latitude': 24.7136,
-                'longitude': 46.6753,
-                'address': "Riyadh, Saudi Arabia",
-                'address_ar': "الرياض، المملكة العربية السعودية",
-                'method': 'افتراضي'
-            }
         except Exception as e:
-            print(f"خطأ في تحديد الموقع: {str(e)}")
-            return {
-                'latitude': 24.7136,
-                'longitude': 46.6753,
-                'address': "Riyadh, Saudi Arabia",
-                'address_ar': "الرياض، المملكة العربية السعودية",
-                'method': 'افتراضي'
-            }
+            print(f"خطأ في my-ip: {e}")
+
+        # القيم الافتراضية (مكة المكرمة)
+        print("⚠️ استخدام الموقع الافتراضي (مكة المكرمة)")
+        return {
+            'latitude': 21.4225,
+            'longitude': 39.8262,
+            'address': "Makkah, Saudi Arabia",
+            'address_ar': "مكة المكرمة، المملكة العربية السعودية",
+            'method': 'افتراضي'
+        }
+
+    def get_coordinates_by_country(self, country_code):
+        """الحصول على إحداثيات تقريبية حسب رمز البلد"""
+        coordinates = {
+            "SA": {"lat": 24.7136, "lon": 46.6753},   # الرياض
+            "EG": {"lat": 30.0444, "lon": 31.2357},   # القاهرة
+            "AE": {"lat": 24.4539, "lon": 54.3773},   # أبوظبي
+            "QA": {"lat": 25.2854, "lon": 51.5310},   # الدوحة
+            "KW": {"lat": 29.3759, "lon": 47.9774},   # الكويت
+            "BH": {"lat": 26.2235, "lon": 50.5876},   # المنامة
+            "OM": {"lat": 23.5880, "lon": 58.3829},   # مسقط
+            "JO": {"lat": 31.9454, "lon": 35.9284},   # عمان
+            "LB": {"lat": 33.8938, "lon": 35.5018},   # بيروت
+            "IQ": {"lat": 33.3152, "lon": 44.3661},   # بغداد
+            "MA": {"lat": 34.0209, "lon": -6.8416},   # الرباط
+            "DZ": {"lat": 36.7538, "lon": 3.0588},    # الجزائر
+            "TN": {"lat": 36.8065, "lon": 10.1815},   # تونس
+            "LY": {"lat": 32.8872, "lon": 13.1913},   # طرابلس
+            "SD": {"lat": 15.5007, "lon": 32.5599},   # الخرطوم
+            "TR": {"lat": 39.9334, "lon": 32.8597},   # أنقرة
+            "US": {"lat": 40.7128, "lon": -74.0060},  # نيويورك
+            "GB": {"lat": 51.5074, "lon": -0.1278},   # لندن
+            "FR": {"lat": 48.8566, "lon": 2.3522},    # باريس
+            "DE": {"lat": 52.5200, "lon": 13.4050},   # برلين
+        }
+        return coordinates.get(country_code, {"lat": 24.7136, "lon": 46.6753})
 
     def translate_country_to_arabic(self, country_code):
         """ترجمة رمز الدولة إلى الاسم العربي"""
@@ -6409,7 +6466,7 @@ class PrayerTimesPage:
             "MX": "المكسيك",
         }
         
-        return country_translations.get(country_code, country_code)
+        return country_translations.get(country_code.upper(), country_code)
 
     def get_accurate_hijri_date(self, date_obj=None):
         """حساب التاريخ الهجري بدقة باستخدام معادلات علمية"""
@@ -6450,24 +6507,29 @@ class PrayerTimesPage:
     def show_default_prayer_times(self, view):
         """عرض مواقيت الصلاة الافتراضية عند عدم وجود اتصال"""
         try:
-            # تحديث التاريخ الهجري محلياً (للتأكيد)
             self.hijri_date = self.get_accurate_hijri_date()
-            # مواقيت الصلاة الافتراضية (يمكن تعديلها حسب الموقع)
+            
+            # محاولة الحصول على الموقع من التخزين المؤقت أولاً
+            cached_location = self.load_location_from_file()
+            if cached_location:
+                default_location = cached_location
+            else:
+                default_location = {
+                    'latitude': 21.4225,
+                    'longitude': 39.8262,
+                    'address': "Makkah, Saudi Arabia",
+                    'address_ar': "مكة المكرمة، المملكة العربية السعودية",
+                    'method': 'افتراضي'
+                }
+            
+            # مواقيت الصلاة الافتراضية (مكة المكرمة)
             default_timings = {
                 'Fajr': '05:00',
-                'Sunrise': '06:00',
-                'Dhuhr': '12:00',
-                'Asr': '15:00',
-                'Maghrib': '18:00',
-                'Isha': '19:30'
-            }
-            
-            default_location = {
-                'latitude': 24.7136,
-                'longitude': 46.6753,
-                'address': "Riyadh, Saudi Arabia",
-                'address_ar': "الرياض، المملكة العربية السعودية",
-                'method': 'افتراضي'
+                'Sunrise': '06:30',
+                'Dhuhr': '12:30',
+                'Asr': '15:45',
+                'Maghrib': '18:20',
+                'Isha': '19:45'
             }
             
             date_info = datetime.now().strftime("%d %B %Y")
@@ -6484,11 +6546,38 @@ class PrayerTimesPage:
             print(f"خطأ في عرض المواقيت الافتراضية: {str(e)}")
             self.show_error_view(view, "لا يمكن تحميل مواقيت الصلاة")
 
+    def load_location_from_file(self):
+        """تحميل بيانات الموقع من ملف التخزين المؤقت"""
+        try:
+            if os.path.exists("last_location.json"):
+                with open("last_location.json", 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    # التحقق من أن البيانات ليست قديمة جداً (أكثر من 7 أيام)
+                    saved_at = datetime.fromisoformat(data.get('saved_at', '2000-01-01'))
+                    if datetime.now() - saved_at < timedelta(days=7):
+                        return data.get('location')
+            return None
+        except Exception as e:
+            print(f"خطأ في تحميل الموقع: {e}")
+            return None
+
+    def save_location_to_file(self, location):
+        """حفظ بيانات الموقع في ملف للتخزين المؤقت"""
+        try:
+            with open("last_location.json", 'w', encoding='utf-8') as f:
+                json.dump({
+                    'location': location,
+                    'saved_at': datetime.now().isoformat()
+                }, f, ensure_ascii=False, indent=2)
+            return True
+        except Exception as e:
+            print(f"خطأ في حفظ الموقع: {e}")
+            return False
+
     @staticmethod
     def create(page: Page):
         prayer_times_page = PrayerTimesPage(page)
         return prayer_times_page.create_view()
-    
 # ============ صفحة الإعدادات المعدلة بشكل عصري ومتجاوب ============
 class SettingsPage:
     def __init__(self, page: Page):
@@ -11226,10 +11315,10 @@ async def main(page: Page):
         # إضافة الصفحة إلى المكدس وتحديثها
         page.views.append(view)
 
-        # إخفاء/إظهار البانر العالمي
+        # البانر العالمي يظهر دائماً في كل الصفحات
         banner = getattr(page, "_global_banner", None)
         if banner is not None:
-            banner.visible = route not in ("/", "/sadaqa_gariya", "/about") and not route.startswith("/quran/surah/")
+            banner.visible = True
             try:
                 banner.update()
             except Exception:
@@ -11249,7 +11338,7 @@ async def main(page: Page):
 
             banner = getattr(page, "_global_banner", None)
             if banner is not None:
-                banner.visible = page.route not in ("/", "/sadaqa_gariya", "/about") and not page.route.startswith("/quran/surah/")
+                banner.visible = True
                 try:
                     banner.update()
                 except Exception:
