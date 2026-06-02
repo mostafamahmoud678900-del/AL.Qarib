@@ -20,11 +20,6 @@ TASBIH_FILE = "tasbih_data.json"
 
 
 class AdsManager:
-    # ══════════════════════════════════════════════════════════
-    # متوافق مع flet-ads >= 0.82 حيث:
-    #   • InterstitialAd  → يُنشأ عند الطلب مباشرة ويُضاف لـ overlay ويُعرض فوراً
-    #   • BannerAd        → LayoutControl (يُضاف مباشرة كـ control عادي)
-    # ══════════════════════════════════════════════════════════
     _INTERSTITIAL_LOG = "ads_daily_log.json"
 
     def __init__(self, page: ft.Page):
@@ -32,15 +27,16 @@ class AdsManager:
         self._ad_unit_id = None
         self._banner_unit_id = None
         self._banner_container = None
-        self._is_showing = False      # منع التكرار أثناء العرض
+        self._current_iad = None
+        self._iad_ready = False
+        self._is_loading = False  # منع التحميل المتكرر
 
         if is_mobile(page):
-            self._ad_unit_id = "ca-app-pub-3940256099942544/1033173712"      # TODO: إرجاع → ca-app-pub-9178517854331057/4196910270
-            self._banner_unit_id = "ca-app-pub-3940256099942544/6300978111"  # TODO: إرجاع → ca-app-pub-9178517854331057/6667889892
+            # استخدم معرّفات الاختبار من Google AdMob (آمنة للتجربة)
+            self._ad_unit_id = "ca-app-pub-3940256099942544/1033173712"      # Interstitial تجريبي
+            self._banner_unit_id = "ca-app-pub-3940256099942544/6300978111"  # Banner تجريبي
+            self._preload_interstitial()
 
-    # ══════════════════════════════════
-    # الإعلان البيني
-    # ══════════════════════════════════
     def _get_today_str(self):
         return datetime.now().strftime("%Y-%m-%d")
 
@@ -62,89 +58,145 @@ class AdsManager:
         except Exception:
             pass
 
-    async def show_ad(self):
-        """
-        ينشئ الإعلان البيني عند الطلب مباشرة، يضيفه للـ overlay، ثم يعرضه.
-        هذا النمط يتجنب الشاشة الحمراء الناتجة عن إضافة overlay قبل جهوزية الصفحة.
-        الحد اليومي: 10 مرات.
-        """
-        if not self._ad_unit_id or self._is_showing:
-            print("⏳ Interstitial: غير متاح أو قيد العرض")
+    def _preload_interstitial(self):
+        """تحميل الإعلان البيني مسبقاً"""
+        if not self._ad_unit_id or self._is_loading:
             return
 
-        log = self._load_daily_log()
-        if log["shown"] >= 10:
-            print("🚫 وصل حد الإعلانات اليومية (10 مرات)")
-            return
-
-        self._is_showing = True
-        loaded_event = asyncio.Event()
-        error_occurred = [False]
+        self._is_loading = True
 
         def _on_load(e):
-            print("✅ Interstitial loaded")
-            loaded_event.set()
+            self._iad_ready = True
+            self._is_loading = False
+            print("✅ Interstitial loaded and ready")
 
         def _on_error(e):
+            self._iad_ready = False
+            self._is_loading = False
             print(f"❌ Interstitial error: {e.data}")
-            error_occurred[0] = True
-            loaded_event.set()
+            # إعادة المحاولة بعد 10 ثوانٍ
+            self._schedule_reload()
+
+        def _on_open(e):
+            print("📱 Interstitial opened")
 
         def _on_close(e):
-            """بعد إغلاق الإعلان: نحذفه من overlay"""
-            self._is_showing = False
-            try:
-                if iad in self.page.overlay:
-                    self.page.overlay.remove(iad)
-                    safe_update(self.page)
-            except Exception:
-                pass
-            print("📱 Interstitial closed")
-
-        iad = fta.InterstitialAd(
-            unit_id=self._ad_unit_id,
-            on_load=_on_load,
-            on_error=_on_error,
-            on_open=lambda e: print("📱 Interstitial opened"),
-            on_close=_on_close,
-        )
-
-        try:
-            self.page.overlay.append(iad)
-            safe_update(self.page)
-
-            # ننتظر التحميل بحد أقصى 10 ثوانٍ
-            try:
-                await asyncio.wait_for(loaded_event.wait(), timeout=10)
-            except asyncio.TimeoutError:
-                print("⏰ Interstitial load timeout")
-                error_occurred[0] = True
-
-            if error_occurred[0]:
-                # إزالة الإعلان عند الخطأ
+            """عند إغلاق الإعلان، نحذف القديم ونحمّل واحداً جديداً"""
+            self._iad_ready = False
+            if self._current_iad in self.page.overlay:
                 try:
-                    if iad in self.page.overlay:
-                        self.page.overlay.remove(iad)
-                        safe_update(self.page)
+                    self.page.overlay.remove(self._current_iad)
                 except Exception:
                     pass
-                self._is_showing = False
-                return
+            self._current_iad = None
+            self._preload_interstitial()
 
-            await iad.show()
+        try:
+            iad = fta.InterstitialAd(
+                unit_id=self._ad_unit_id,
+                on_load=_on_load,
+                on_error=_on_error,
+                on_open=_on_open,
+                on_close=_on_close,
+            )
+            self._current_iad = iad
+            self.page.overlay.append(iad)
+            safe_update(self.page)
+        except Exception as e:
+            print(f"⚠️ Interstitial creation error: {e}")
+            self._is_loading = False
+
+    def _schedule_reload(self):
+        """إعادة محاولة تحميل الإعلان بعد تأخير"""
+        if self._is_loading:
+            return
+
+        async def _reload_after_delay():
+            await asyncio.sleep(10)  # انتظر 10 ثوانٍ قبل إعادة المحاولة
+            if not self._iad_ready:
+                self._preload_interstitial()
+
+        self.page.run_task(_reload_after_delay)
+
+    async def show_ad(self):
+        """
+        عرض الإعلان البيني إذا كان جاهزاً ولم يتجاوز الحد اليومي
+        """
+        if not self._ad_unit_id:
+            print("⏳ No ad unit ID")
+            return
+
+        if not self._current_iad:
+            print("⏳ No interstitial instance")
+            return
+
+        if not self._iad_ready:
+            print("⏳ Interstitial not ready yet")
+            # حاول تحميل إعلان جديد
+            self._preload_interstitial()
+            return
+
+        # التحقق من الحد اليومي
+        log = self._load_daily_log()
+        if log["shown"] >= 10:
+            print("🚫 Daily ad limit reached (10)")
+            return
+
+        try:
+            await self._current_iad.show()
             log["shown"] += 1
             self._save_daily_log(log["shown"])
+            self._iad_ready = False  # تم استهلاك الإعلان
             print(f"✅ Interstitial shown ({log['shown']}/10 today)")
-
         except Exception as ex:
             print(f"⚠️ Interstitial show error: {ex}")
-            try:
-                if iad in self.page.overlay:
-                    self.page.overlay.remove(iad)
-                    safe_update(self.page)
-            except Exception:
-                pass
-            self._is_showing = False
+            # إذا فشل العرض، أعد التحميل
+            self._iad_ready = False
+            self._preload_interstitial()
+
+    def build_banner(self) -> fta.BannerAd:
+        """بناء بانر إعلاني جديد"""
+        return fta.BannerAd(
+            unit_id=self._banner_unit_id,
+            width=320,
+            height=50,
+            on_load=lambda e: print("✅ Banner loaded"),
+            on_error=lambda e: print(f"❌ Banner error: {e.data}"),
+        )
+
+    def setup_banner(self, container):
+        """إعداد البانر مع التحديث التلقائي"""
+        self._banner_container = container
+        if container and hasattr(container, 'content'):
+            # بناء البانر الأولي
+            container.content = self.build_banner()
+            safe_update(self.page)
+        self.page.run_task(self._refresh_banner_loop)
+
+    async def _refresh_banner_loop(self):
+        """تحديث البانر كل 30 ثانية"""
+        while True:
+            await asyncio.sleep(30)
+            self._rebuild_banner()
+
+    def _rebuild_banner(self):
+        """إعادة بناء البانر"""
+        if not self._banner_container or not self._banner_unit_id:
+            return
+        try:
+            old_banner = self._banner_container.content
+            self._banner_container.content = self.build_banner()
+            safe_update(self.page)
+            
+            # محاولة تنظيف البانر القديم
+            if old_banner and hasattr(old_banner, 'cleanup'):
+                try:
+                    old_banner.cleanup()
+                except:
+                    pass
+            print("🔄 Banner refreshed")
+        except Exception as ex:
+            print(f"⚠️ Banner rebuild error: {ex}")
 
     # ══════════════════════════════════
     # البانر — LayoutControl (flet-ads >= 0.82)
