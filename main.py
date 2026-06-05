@@ -21,13 +21,9 @@ TASBIH_FILE = "tasbih_data.json"
 
 class AdsManager:
     # ══════════════════════════════════════════════════════════
-    # متوافق مع flet-ads 0.85.2
-    #
-    # الإعلان البيني: يُبنى يدوياً كـ overlay يغطي الشاشة كاملة
-    # باستخدام BannerAd داخل نافذة مودال — لأن InterstitialAd
-    # في 0.85.2 لا يعرض بشكل صحيح كشاشة كاملة.
-    #
-    # البانر: BannerAd عادي في أسفل الشاشة.
+    # متوافق مع flet-ads >= 0.82 حيث:
+    #   • InterstitialAd  → Service  (يُضاف لـ page.overlay مسبقاً، يُعرض بـ show())
+    #   • BannerAd        → LayoutControl (يُضاف مباشرة كـ control عادي)
     # ══════════════════════════════════════════════════════════
     _INTERSTITIAL_LOG = "ads_daily_log.json"
 
@@ -36,17 +32,19 @@ class AdsManager:
         self._ad_unit_id = None
         self._banner_unit_id = None
         self._banner_container = None
-        self._modal_overlay = None   # الـ overlay الذي يغطي الشاشة
-        self._showing = False        # منع العرض المتوازي
+        self._current_iad = None   # الإعلان البيني المحمّل وجاهز للعرض
+        self._iad_ready = False    # هل الإعلان محمّل وجاهز؟
+        self._loading = False      # منع التحميل المتوازي
 
         if is_mobile(page):
-            # نستخدم unit_id الخاص بالبانر للإعلان البيني اليدوي أيضاً
-            # لأن BannerAd هو الوحيد الذي يعمل في 0.85.2
-            self._ad_unit_id = "ca-app-pub-3940256099942544/6300978111"      # TODO: إرجاع → ca-app-pub-9178517854331057/6667889892
+            self._ad_unit_id = "ca-app-pub-3940256099942544/1033173712"      # TODO: إرجاع → ca-app-pub-9178517854331057/4196910270
             self._banner_unit_id = "ca-app-pub-3940256099942544/6300978111"  # TODO: إرجاع → ca-app-pub-9178517854331057/6667889892
+            # نُجدوِل التحميل الأول بعد اكتمال بناء الصفحة — لا نستدعيه مباشرة من __init__
+            # حتى لا يحدث safe_update قبل أن تكون الصفحة جاهزة تماماً
+            self.page.run_task(self._delayed_preload)
 
     # ══════════════════════════════════
-    # السجل اليومي
+    # الإعلان البيني
     # ══════════════════════════════════
     def _get_today_str(self):
         return datetime.now().strftime("%Y-%m-%d")
@@ -69,16 +67,89 @@ class AdsManager:
         except Exception:
             pass
 
-    # ══════════════════════════════════════════════════════════════
-    # الإعلان البيني اليدوي — نافذة مودال تغطي الشاشة بالكامل
-    # تحتوي على BannerAd (الذي يعمل فعلاً) + زر إغلاق بعد 5 ثواني
-    # ══════════════════════════════════════════════════════════════
+    async def _delayed_preload(self):
+        """ننتظر ثانية واحدة حتى تكتمل الصفحة الرئيسية ثم نحمّل الإعلان"""
+        await asyncio.sleep(1)
+        self._preload_interstitial()
+
+    def _preload_interstitial(self):
+        """
+        ينشئ instance جديد من InterstitialAd ويضيفه لـ page.overlay.
+        ✅ لا نستدعي safe_update هنا — الإعلان Service وليس widget مرئي،
+           ويُسجَّل تلقائياً بمجرد إضافته للـ overlay عند أي update لاحق.
+        """
+        if not self._ad_unit_id or self._loading:
+            return
+        # إذا كان هناك إعلان قديم، نزيله أولاً
+        if self._current_iad is not None:
+            try:
+                if self._current_iad in self.page.overlay:
+                    self.page.overlay.remove(self._current_iad)
+            except Exception:
+                pass
+            self._current_iad = None
+
+        self._loading = True
+        self._iad_ready = False
+
+        def _on_load(e):
+            self._iad_ready = True
+            self._loading = False
+            print("✅ Interstitial loaded and ready")
+
+        def _on_error(e):
+            self._iad_ready = False
+            self._loading = False
+            print(f"❌ Interstitial error: {e.data}")
+            self._schedule_reload()
+
+        def _on_open(e):
+            print("📱 Interstitial opened")
+
+        def _on_close(e):
+            """بعد إغلاق الإعلان: نزيله من overlay ونحمّل واحداً جديداً"""
+            self._iad_ready = False
+            try:
+                if self._current_iad in self.page.overlay:
+                    self.page.overlay.remove(self._current_iad)
+            except Exception:
+                pass
+            self._current_iad = None
+            # نُجدوِل تحميل الإعلان التالي بعد تأخير قصير
+            self.page.run_task(self._delayed_preload)
+
+        iad = fta.InterstitialAd(
+            unit_id=self._ad_unit_id,
+            on_load=_on_load,
+            on_error=_on_error,
+            on_open=_on_open,
+            on_close=_on_close,
+        )
+        self._current_iad = iad
+        self.page.overlay.append(iad)
+        # ✅ نستدعي update مرة واحدة فقط وبدون try/except صامت
+        #    حتى يتم تسجيل الـ Service مع AdMob SDK
+        try:
+            self.page.update()
+        except Exception as ex:
+            print(f"⚠️ overlay update error: {ex}")
+
+    def _schedule_reload(self):
+        """يجدول إعادة تحميل الإعلان بعد 30 ثانية عند الفشل"""
+        async def _reload_after_delay():
+            await asyncio.sleep(30)
+            self._preload_interstitial()
+        self.page.run_task(_reload_after_delay)
+
     async def show_ad(self):
         """
-        يعرض الإعلان البيني كـ overlay يغطي الشاشة كاملة.
+        يعرض الإعلان البيني إذا كان محمّلاً وجاهزاً.
         الحد اليومي: 10 مرات — كل تنقل.
         """
-        if not self._ad_unit_id or self._showing:
+        if not self._ad_unit_id:
+            return
+        if not self._current_iad or not self._iad_ready:
+            print("⏳ Interstitial not ready yet")
             return
 
         log = self._load_daily_log()
@@ -86,189 +157,19 @@ class AdsManager:
             print("🚫 وصل حد الإعلانات اليومية (10 مرات)")
             return
 
-        self._showing = True
-        print("📱 Showing custom interstitial overlay")
-
-        # ── مرجع للـ countdown text ──────────────────────────
-        countdown_text = ft.Text(
-            "×  5",
-            size=14,
-            color=ft.Colors.WHITE,
-            weight=ft.FontWeight.BOLD,
-            text_align=ft.TextAlign.CENTER,
-        )
-        close_btn = ft.Container(
-            content=countdown_text,
-            width=52,
-            height=28,
-            border_radius=14,
-            bgcolor=ft.Colors.with_opacity(0.75, "#000000"),
-            alignment=ft.Alignment(0, 0),
-            visible=False,   # مخفي حتى ينتهي العدّ التنازلي
-        )
-
-        def _dismiss(e=None):
-            """إغلاق الـ overlay وإزالته من الـ page.overlay"""
-            try:
-                if self._modal_overlay in self.page.overlay:
-                    self.page.overlay.remove(self._modal_overlay)
-                    safe_update(self.page)
-            except Exception:
-                pass
-            self._modal_overlay = None
-            self._showing = False
-            print("✅ Interstitial overlay closed")
-
-        close_btn.on_click = _dismiss
-
-        # ── BannerAd الحقيقي داخل container كبير ────────────
-        banner_ad = fta.BannerAd(
-            unit_id=self._ad_unit_id,
-            on_load=lambda e: print("✅ Interstitial BannerAd loaded"),
-            on_error=lambda e: print(f"❌ Interstitial BannerAd error: {e.data}"),
-        )
-
-        # ── نافذة الإعلان ────────────────────────────────────
-        ad_card = ft.Container(
-            width=340,
-            height=480,
-            border_radius=16,
-            bgcolor="#FFFFFF",
-            shadow=ft.BoxShadow(
-                blur_radius=40,
-                spread_radius=2,
-                color=ft.Colors.with_opacity(0.45, "#000000"),
-                offset=ft.Offset(0, 8),
-            ),
-            clip_behavior=ft.ClipBehavior.HARD_EDGE,
-            content=ft.Column(
-                spacing=0,
-                controls=[
-                    # ── شريط العنوان ──
-                    ft.Container(
-                        height=38,
-                        bgcolor="#1a1145",
-                        padding=ft.Padding.symmetric(horizontal=12, vertical=0),
-                        content=ft.Row(
-                            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                            controls=[
-                                ft.Text(
-                                    "إعلان",
-                                    size=13,
-                                    color=ft.Colors.with_opacity(0.7, ft.Colors.WHITE),
-                                    weight=ft.FontWeight.W_500,
-                                ),
-                                close_btn,
-                            ],
-                        ),
-                    ),
-                    # ── منطقة الإعلان الرئيسية — BannerAd مُمدّد ──
-                    ft.Container(
-                        expand=True,
-                        bgcolor="#F5F5F5",
-                        alignment=ft.Alignment(0, 0),
-                        content=ft.Column(
-                            alignment=ft.MainAxisAlignment.CENTER,
-                            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                            spacing=0,
-                            controls=[
-                                # نكرر البانر عدة مرات عمودياً لملء المساحة
-                                ft.Container(content=banner_ad, width=320, height=50),
-                                ft.Container(
-                                    content=fta.BannerAd(
-                                        unit_id=self._ad_unit_id,
-                                        on_load=lambda e: None,
-                                        on_error=lambda e: None,
-                                    ),
-                                    width=320,
-                                    height=50,
-                                    margin=ft.Margin(0, 8, 0, 0),
-                                ),
-                                ft.Container(
-                                    content=fta.BannerAd(
-                                        unit_id=self._ad_unit_id,
-                                        on_load=lambda e: None,
-                                        on_error=lambda e: None,
-                                    ),
-                                    width=320,
-                                    height=50,
-                                    margin=ft.Margin(0, 8, 0, 0),
-                                ),
-                                ft.Container(
-                                    content=fta.BannerAd(
-                                        unit_id=self._ad_unit_id,
-                                        on_load=lambda e: None,
-                                        on_error=lambda e: None,
-                                    ),
-                                    width=320,
-                                    height=50,
-                                    margin=ft.Margin(0, 8, 0, 0),
-                                ),
-                                ft.Container(
-                                    content=fta.BannerAd(
-                                        unit_id=self._ad_unit_id,
-                                        on_load=lambda e: None,
-                                        on_error=lambda e: None,
-                                    ),
-                                    width=320,
-                                    height=50,
-                                    margin=ft.Margin(0, 8, 0, 0),
-                                ),
-                            ],
-                        ),
-                    ),
-                ],
-            ),
-        )
-
-        # ── الـ overlay الكامل (خلفية شبه شفافة + البطاقة في المنتصف) ──
-        modal = ft.Container(
-            expand=True,
-            bgcolor=ft.Colors.with_opacity(0.82, "#000000"),
-            alignment=ft.Alignment(0, 0),
-            content=ft.Stack(
-                expand=True,
-                controls=[
-                    # البطاقة في المنتصف
-                    ft.Container(
-                        content=ad_card,
-                        alignment=ft.Alignment(0, 0),
-                        expand=True,
-                    ),
-                ],
-            ),
-        )
-
-        self._modal_overlay = modal
-        self.page.overlay.append(modal)
-        safe_update(self.page)
-
-        # تسجيل العرض
-        log["shown"] += 1
-        self._save_daily_log(log["shown"])
-        print(f"✅ Interstitial shown ({log['shown']}/10 today)")
-
-        # ── عدّ تنازلي 5 ثواني ثم إظهار زر الإغلاق ──────────
-        async def _countdown():
-            for i in range(5, 0, -1):
-                await asyncio.sleep(1)
-                try:
-                    countdown_text.value = f"×  {i}"
-                    safe_update(self.page)
-                except Exception:
-                    return
-            try:
-                countdown_text.value = "✕  إغلاق"
-                close_btn.visible = True
-                safe_update(self.page)
-            except Exception:
-                pass
-
-        self.page.run_task(_countdown)
+        try:
+            self._iad_ready = False  # نمنع عرضه مرتين متتاليتين
+            # ✅ flet-ads 0.85.2: show() هي coroutine — يجب await
+            await self._current_iad.show()
+            log["shown"] += 1
+            self._save_daily_log(log["shown"])
+            print(f"✅ Interstitial shown ({log['shown']}/10 today)")
+        except Exception as ex:
+            print(f"⚠️ Interstitial show error: {ex}")
+            self._iad_ready = True  # نعيد الحالة عند الفشل
 
     # ══════════════════════════════════
-    # البانر — LayoutControl (flet-ads 0.85.2)
+    # البانر — LayoutControl (flet-ads >= 0.82)
     # ══════════════════════════════════
     def build_banner(self) -> fta.BannerAd:
         return fta.BannerAd(
