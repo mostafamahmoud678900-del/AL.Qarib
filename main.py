@@ -23,113 +23,38 @@ class AdsManager:
     # ══════════════════════════════════════════════════════════
     # يدير البانر والإعلان البيني — flet-ads >= 0.82
     #
-    # InterstitialAd → ft.Service يُضاف لـ page.overlay
-    #   • كل instance يُستخدم مرة واحدة فقط (show مرة ثم يُزال)
-    #   • نُنشئ instance جديد بعد كل إغلاق جاهزاً للمرة التالية
+    # ✅ الإعلان البيني: BannerAd داخل overlay يغطي الشاشة كاملاً
+    #    (نتجنب InterstitialAd تماماً لأنه يسبب الصندوق الأحمر)
     #
-    # BannerAd → LayoutControl يُضاف مباشرة كـ control عادي
+    # ✅ البانر: BannerAd LayoutControl عادي في أسفل الشاشة
     # ══════════════════════════════════════════════════════════
 
-    # حد الإعلانات البينية اليومية
     _DAILY_LIMIT = 10
     _LOG_FILE    = "ads_daily_log.json"
 
-    # معرّفات الاختبار (استبدلها بمعرّفاتك الحقيقية عند النشر)
-    _IAD_UNIT_ANDROID = "ca-app-pub-3940256099942544/1033173712"   # TODO → ca-app-pub-9178517854331057/4196910270
-    _IAD_UNIT_IOS     = "ca-app-pub-3940256099942544/4411468910"   # TODO → معرّف iOS الحقيقي
+    # معرّفات البانر (استبدلها بمعرّفاتك الحقيقية عند النشر)
     _BAN_UNIT_ANDROID = "ca-app-pub-3940256099942544/6300978111"   # TODO → ca-app-pub-9178517854331057/6667889892
     _BAN_UNIT_IOS     = "ca-app-pub-3940256099942544/2934735716"   # TODO → معرّف iOS الحقيقي
 
     def __init__(self, page: ft.Page):
-        self.page = page
-        self._iad_unit   = None   # معرّف وحدة الإعلان البيني
-        self._ban_unit   = None   # معرّف وحدة البانر
-        self._iad        = None   # الـ instance الحالي لـ InterstitialAd
-        self._iad_ready  = False  # هل الإعلان محمّل وجاهز للعرض؟
+        self.page            = page
+        self._ban_unit       = None
         self._banner_container = None
+        self._iad_overlay    = None   # الـ Container الذي يغطي الشاشة للإعلان البيني
+        self._showing_iad    = False  # هل الإعلان البيني مرئي الآن؟
 
         if not is_mobile(page):
             return
 
-        # تحديد المعرّفات حسب المنصة
-        if page.platform == ft.PagePlatform.IOS:
-            self._iad_unit = self._IAD_UNIT_IOS
-            self._ban_unit = self._BAN_UNIT_IOS
-        else:
-            self._iad_unit = self._IAD_UNIT_ANDROID
-            self._ban_unit = self._BAN_UNIT_ANDROID
-
-        # تحميل أول إعلان بيني بعد ثانية من اكتمال بناء الصفحة
-        self.page.run_task(self._load_interstitial_after_delay)
-
-    # ══════════════════════════════════════════════
-    # الإعلان البيني — InterstitialAd (ft.Service)
-    # ══════════════════════════════════════════════
-
-    async def _load_interstitial_after_delay(self):
-        """ننتظر ثانية حتى تكتمل الصفحة ثم نحمّل الإعلان"""
-        await asyncio.sleep(1)
-        self._load_interstitial()
-
-    def _load_interstitial(self):
-        """
-        ينشئ instance جديد من InterstitialAd ويضيفه لـ page.overlay.
-        يجب استدعاؤها بعد كل عرض (كل instance يُعرض مرة واحدة فقط).
-        """
-        if not self._iad_unit:
-            return
-
-        # إزالة الـ instance القديم من overlay إن وُجد
-        if self._iad is not None:
-            try:
-                self.page.overlay.remove(self._iad)
-            except Exception:
-                pass
-            self._iad = None
-
-        self._iad_ready = False
-
-        def _on_load(e):
-            self._iad_ready = True
-            print("✅ Interstitial loaded and ready")
-
-        def _on_error(e):
-            self._iad_ready = False
-            print(f"❌ Interstitial error: {e.data}")
-            # إعادة المحاولة بعد 30 ثانية
-            async def _retry():
-                await asyncio.sleep(30)
-                self._load_interstitial()
-            self.page.run_task(_retry)
-
-        def _on_open(e):
-            print("📱 Interstitial opened")
-
-        def _on_close(e):
-            """بعد إغلاق الإعلان: نزيل الـ instance ونُحمّل واحداً جديداً"""
-            self._iad_ready = False
-            try:
-                self.page.overlay.remove(self._iad)
-            except Exception:
-                pass
-            self._iad = None
-            self.page.run_task(self._load_interstitial_after_delay)
-            print("🔄 Loading next interstitial...")
-
-        self._iad = fta.InterstitialAd(
-            unit_id=self._iad_unit,
-            on_load=_on_load,
-            on_error=_on_error,
-            on_open=_on_open,
-            on_close=_on_close,
+        self._ban_unit = (
+            self._BAN_UNIT_IOS
+            if page.platform == ft.PagePlatform.IOS
+            else self._BAN_UNIT_ANDROID
         )
-        self.page.overlay.append(self._iad)
-        try:
-            self.page.update()
-        except Exception as ex:
-            print(f"⚠️ overlay update error: {ex}")
 
-    # ── سجل الإعلانات اليومية ──────────────────────────────
+    # ══════════════════════════════════════════════════════════
+    # الإعلان البيني — BannerAd داخل overlay يغطي الشاشة كاملاً
+    # ══════════════════════════════════════════════════════════
 
     def _today(self) -> str:
         return datetime.now().strftime("%Y-%m-%d")
@@ -152,15 +77,25 @@ class AdsManager:
         except Exception:
             pass
 
-    # ── عرض الإعلان ────────────────────────────────────────
+    def _close_iad(self, e=None):
+        """إغلاق الإعلان البيني وإزالته من overlay"""
+        if self._iad_overlay is None:
+            return
+        try:
+            self.page.overlay.remove(self._iad_overlay)
+            self._iad_overlay = None
+            self._showing_iad = False
+            safe_update(self.page)
+            print("✅ Interstitial closed")
+        except Exception as ex:
+            print(f"⚠️ close_iad error: {ex}")
 
     async def show_interstitial(self):
         """
-        يعرض الإعلان البيني إذا كان جاهزاً ولم يتجاوز الحد اليومي.
-        استدعِه قبل الانتقال بين الصفحات.
+        يعرض إعلاناً بينياً: BannerAd داخل Container يغطي الشاشة كاملاً.
+        يُغلق تلقائياً بعد 5 ثوانٍ أو عند ضغط زر الإغلاق.
         """
-        if not self._iad_unit or not self._iad_ready or self._iad is None:
-            print("⏳ Interstitial not ready")
+        if not self._ban_unit or self._showing_iad:
             return
 
         log = self._load_log()
@@ -168,18 +103,68 @@ class AdsManager:
             print(f"🚫 Daily limit reached ({self._DAILY_LIMIT})")
             return
 
-        self._iad_ready = False  # نمنع عرضه مرتين
-        try:
-            await self._iad.show()
-            log["shown"] += 1
-            self._save_log(log["shown"])
-            print(f"✅ Interstitial shown ({log['shown']}/{self._DAILY_LIMIT} today)")
-        except Exception as ex:
-            print(f"⚠️ Interstitial show error: {ex}")
-            self._iad_ready = True  # نُعيد الحالة عند الفشل
+        self._showing_iad = True
+
+        # ─── بناء واجهة الإعلان البيني ───────────────────────
+        banner_ad = fta.BannerAd(
+            unit_id=self._ban_unit,
+            on_load=lambda e: print("✅ Interstitial-banner loaded"),
+            on_error=lambda e: print(f"❌ Interstitial-banner error: {e.data}"),
+        )
+
+        close_btn = ft.IconButton(
+            icon=ft.Icons.CLOSE,
+            icon_color="#FFFFFF",
+            icon_size=20,
+            on_click=self._close_iad,
+            style=ft.ButtonStyle(
+                bgcolor=ft.Colors.with_opacity(0.6, "#000000"),
+                shape=ft.CircleBorder(),
+                padding=ft.padding.all(4),
+            ),
+        )
+
+        # Container شفاف يغطي الشاشة كاملاً مع الإعلان في المنتصف
+        self._iad_overlay = ft.Container(
+            expand=True,
+            bgcolor=ft.Colors.with_opacity(0.85, "#000000"),
+            alignment=ft.alignment.center,
+            content=ft.Stack(
+                controls=[
+                    # الإعلان في المركز
+                    ft.Container(
+                        content=banner_ad,
+                        alignment=ft.alignment.center,
+                        width=320,
+                        height=50,
+                    ),
+                    # زر الإغلاق في أعلى اليمين
+                    ft.Container(
+                        content=close_btn,
+                        top=0,
+                        right=0,
+                    ),
+                ],
+                width=340,
+                height=70,
+            ),
+        )
+
+        self.page.overlay.append(self._iad_overlay)
+        safe_update(self.page)
+
+        log["shown"] += 1
+        self._save_log(log["shown"])
+        print(f"✅ Interstitial shown ({log['shown']}/{self._DAILY_LIMIT} today)")
+
+        # إغلاق تلقائي بعد 5 ثوانٍ
+        async def _auto_close():
+            await asyncio.sleep(5)
+            self._close_iad()
+        self.page.run_task(_auto_close)
 
     # ══════════════════════════════════════════════
-    # البانر — BannerAd (LayoutControl)
+    # البانر — BannerAd LayoutControl (flet-ads >= 0.82)
     # ══════════════════════════════════════════════
 
     def build_banner(self) -> fta.BannerAd:
@@ -218,12 +203,10 @@ class AdsManager:
 # ══════════════════════════════════════════════
 AD_IDS = {
     ft.PagePlatform.ANDROID: {
-        "banner":       "ca-app-pub-3940256099942544/6300978111",   # TODO → ca-app-pub-9178517854331057/6667889892
-        "interstitial": "ca-app-pub-3940256099942544/1033173712",   # TODO → ca-app-pub-9178517854331057/4196910270
+        "banner": "ca-app-pub-3940256099942544/6300978111",   # TODO → ca-app-pub-9178517854331057/6667889892
     },
     ft.PagePlatform.IOS: {
-        "banner":       "ca-app-pub-3940256099942544/2934735716",   # TODO → معرّف iOS الحقيقي
-        "interstitial": "ca-app-pub-3940256099942544/4411468910",   # TODO → معرّف iOS الحقيقي
+        "banner": "ca-app-pub-3940256099942544/2934735716",   # TODO → معرّف iOS الحقيقي
     },
 }
 
